@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "es2018",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "noImplicitAny": false,
+    "outDir": "dist",
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["*"],
+      "@artifacts/*": ["artifacts/*"],
+      "@test/*": ["test/*"],
+    }
+  },
+  "include": ["hardhat.config.ts", "test/**/*"]
+}
