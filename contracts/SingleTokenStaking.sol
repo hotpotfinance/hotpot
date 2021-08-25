@@ -25,19 +25,20 @@ contract SingleTokenStaking is BaseSingleTokenStaking {
     function initialize(
         string memory _name,
         address _owner,
-        address _converter,
-        address _stakingRewards
+        IPancakePair _lp,
+        IConverter _converter,
+        IStakingRewards _stakingRewards
     ) external {
         require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked("")), "Already initialized");
         super.initializePausable(_owner);
         super.initializeReentrancyGuard();
 
         name = _name;
-        converter = IConverter(_converter);
-        lp = IERC20(converter.lp());
-        token0 = IERC20(converter.token0());
-        token1 = IERC20(converter.token1());
-        stakingRewards = IStakingRewards(_stakingRewards);
+        lp = IERC20(address(_lp));
+        token0 = IERC20(_lp.token0());
+        token1 = IERC20(_lp.token1());
+        converter = _converter;
+        stakingRewards = _stakingRewards;
         isToken0RewardsToken = (stakingRewards.rewardsToken() == address(token0));
     }
 
@@ -63,7 +64,7 @@ contract SingleTokenStaking is BaseSingleTokenStaking {
         stakingRewards.withdraw(amount);
 
         lp.safeApprove(address(converter), amount);
-        converter.removeLiquidityAndConvert(amount, token0Percentage, msg.sender);
+        converter.removeLiquidityAndConvert(IPancakePair(address(lp)), amount, token0Percentage, msg.sender);
 
         emit Withdrawn(msg.sender, amount);
     }
@@ -78,10 +79,10 @@ contract SingleTokenStaking is BaseSingleTokenStaking {
             _rewards[msg.sender] = 0;
             if (isToken0RewardsToken) {
                 token0.safeApprove(address(converter), reward);
-                converter.convert(address(token0), reward, 100 - token0Percentage, 0, msg.sender);
+                converter.convert(address(token0), reward, 100 - token0Percentage, address(token1), 0, msg.sender);
             } else {
                 token1.safeApprove(address(converter), reward);
-                converter.convert(address(token1), reward, token0Percentage, 0, msg.sender);
+                converter.convert(address(token1), reward, token0Percentage, address(token0), 0, msg.sender);
             }
         }
     }

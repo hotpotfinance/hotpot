@@ -23,8 +23,9 @@ contract TempStakeManager is BaseSingleTokenStaking {
     function initialize(
         string memory _name,
         address _owner,
-        address _converter,
-        address _stakingRewards,
+        IPancakePair _lp,
+        IConverter _converter,
+        IStakingRewards _stakingRewards,
         address _mainContract
     ) external {
         require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked("")), "Already initialized");
@@ -32,11 +33,11 @@ contract TempStakeManager is BaseSingleTokenStaking {
         super.initializeReentrancyGuard();
 
         name = _name;
-        converter = IConverter(_converter);
-        lp = IERC20(converter.lp());
-        token0 = IERC20(converter.token0());
-        token1 = IERC20(converter.token1());
-        stakingRewards = IStakingRewards(_stakingRewards);
+        lp = IERC20(address(_lp));
+        token0 = IERC20(_lp.token0());
+        token1 = IERC20(_lp.token1());
+        converter = _converter;
+        stakingRewards = _stakingRewards;
         isToken0RewardsToken = (stakingRewards.rewardsToken() == address(token0));
 
         mainContract = _mainContract;
@@ -111,12 +112,12 @@ contract TempStakeManager is BaseSingleTokenStaking {
         if (reward > 0) {
             _rewards[staker] = 0;
 
-            address rewardToken = isToken0RewardsToken ? address(token0) : address(token1);
+            (IERC20 rewardToken, IERC20 otherToken) = isToken0RewardsToken ? (token0, token1) : (token1, token0);
             uint256 lpAmountBefore = lp.balanceOf(address(this));
 
             // Convert rewards to LP tokens
-            IERC20(rewardToken).safeApprove(address(converter), reward);
-            converter.convertAndAddLiquidity(rewardToken, reward, 0, address(this));
+            rewardToken.safeApprove(address(converter), reward);
+            converter.convertAndAddLiquidity(address(rewardToken), reward, address(otherToken), 0, address(this));
 
             uint256 lpAmountAfter = lp.balanceOf(address(this));
             convertedLPAmount = (lpAmountAfter - lpAmountBefore);

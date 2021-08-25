@@ -20,7 +20,8 @@ contract AutoCompound is BaseSingleTokenStaking {
     function initialize(
         string memory _name,
         address _owner,
-        address _converter,
+        IPancakePair _lp,
+        IConverter _converter,
         address _stakingRewards
     ) external {
         require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked("")), "Already initialized");
@@ -28,12 +29,11 @@ contract AutoCompound is BaseSingleTokenStaking {
         super.initializeReentrancyGuard();
 
         name = _name;
-        converter = IConverter(_converter);
-        lp = IERC20(converter.lp());
-        token0 = IERC20(converter.token0());
-        token1 = IERC20(converter.token1());
+        lp = IERC20(address(_lp));
+        token0 = IERC20(_lp.token0());
+        token1 = IERC20(_lp.token1());
+        converter = _converter;
         stakingRewards = IStakingRewards(_stakingRewards);
-        isToken0RewardsToken = (stakingRewards.rewardsToken() == address(token0));
     }
 
     /* ========== VIEWS ========== */
@@ -88,7 +88,7 @@ contract AutoCompound is BaseSingleTokenStaking {
         stakingRewards.withdraw(amount);
 
         lp.safeApprove(address(converter), amount);
-        converter.removeLiquidityAndConvert(amount, token0Percentage, msg.sender);
+        converter.removeLiquidityAndConvert(IPancakePair(address(lp)), amount, token0Percentage, msg.sender);
 
         emit Withdrawn(msg.sender, amount);
     }
@@ -115,7 +115,7 @@ contract AutoCompound is BaseSingleTokenStaking {
             stakingRewards.withdraw(compoundedLPRewardAmount);
 
             lp.safeApprove(address(converter), compoundedLPRewardAmount);
-            converter.removeLiquidityAndConvert(compoundedLPRewardAmount, token0Percentage, msg.sender);
+            converter.removeLiquidityAndConvert(IPancakePair(address(lp)), compoundedLPRewardAmount, token0Percentage, msg.sender);
 
             emit RewardPaid(msg.sender, compoundedLPRewardAmount);
         }
@@ -138,12 +138,30 @@ contract AutoCompound is BaseSingleTokenStaking {
         if (rewardsLeft > 0) {
             stakingRewards.getReward();
 
-            address rewardToken = isToken0RewardsToken ? address(token0) : address(token1);
             uint256 lpAmountBefore = lp.balanceOf(address(this));
+            IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());
 
-            // Convert rewards to LP tokens
-            IERC20(rewardToken).safeApprove(address(converter), rewardsLeft);
-            converter.convertAndAddLiquidity(rewardToken, rewardsLeft, 0, address(this));
+            if (address(rewardToken) == address(token0)) {
+                // Convert token0 to LP tokens
+                token0.safeApprove(address(converter), rewardsLeft);
+                converter.convertAndAddLiquidity(address(token0), rewardsLeft, address(token1), 0, address(this));
+            } else if (address(rewardToken) == address(token1)) {
+                // Convert token1 to LP tokens
+                token1.safeApprove(address(converter), rewardsLeft);
+                converter.convertAndAddLiquidity(address(token1), rewardsLeft, address(token0), 0, address(this));
+            } else {
+                // If reward token is neither token0 or token1, convert to token0 first
+                uint256 token0BalanceBefore = token0.balanceOf(address(this));
+                // Convert rewards to token0
+                rewardToken.safeApprove(address(converter), rewardsLeft);
+                converter.convert(address(rewardToken), rewardsLeft, 100, address(token0), 0, address(this));
+                uint256 token0BalanceAfter = token0.balanceOf(address(this));
+                uint256 convertedToken0Amount = (token0BalanceAfter - token0BalanceBefore);
+
+                // Convert converted token0 to LP tokens
+                token0.safeApprove(address(converter), convertedToken0Amount);
+                converter.convertAndAddLiquidity(address(token0), convertedToken0Amount, address(token1), 0, address(this));
+            }
 
             uint256 lpAmountAfter = lp.balanceOf(address(this));
             uint256 lpAmount = (lpAmountAfter - lpAmountBefore);

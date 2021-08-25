@@ -63,11 +63,11 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         if (isToken0) {
             token0.safeTransferFrom(msg.sender, address(this), amount);
             token0.safeApprove(address(converter), amount);
-            converter.convertAndAddLiquidity(address(token0), amount, 0, address(this));
+            converter.convertAndAddLiquidity(address(token0), amount, address(token1), 0, address(this));
         } else {
             token1.safeTransferFrom(msg.sender, address(this), amount);
             token1.safeApprove(address(converter), amount);
-            converter.convertAndAddLiquidity(address(token1), amount, 0, address(this));
+            converter.convertAndAddLiquidity(address(token1), amount, address(token0), 0, address(this));
         }
 
         uint256 lpAmountAfter = lp.balanceOf(address(this));

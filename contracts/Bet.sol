@@ -31,8 +31,9 @@ contract Bet is BaseSingleTokenStaking {
     function initialize(
         string memory _name,
         address _owner,
-        address _converter,
-        address _stakingRewards,
+        IPancakePair _lp,
+        IConverter _converter,
+        IStakingRewards _stakingRewards,
         address _operator,
         address _liquidityProvider,
         IPancakeRouter _router,
@@ -45,11 +46,11 @@ contract Bet is BaseSingleTokenStaking {
         super.initializeReentrancyGuard();
 
         name = _name;
-        converter = IConverter(_converter);
-        lp = IERC20(converter.lp());
-        token0 = IERC20(converter.token0());
-        token1 = IERC20(converter.token1());
-        stakingRewards = IStakingRewards(_stakingRewards);
+        lp = IERC20(address(_lp));
+        token0 = IERC20(_lp.token0());
+        token1 = IERC20(_lp.token1());
+        converter = _converter;
+        stakingRewards = _stakingRewards;
         isToken0RewardsToken = (stakingRewards.rewardsToken() == address(token0));
 
         state = State.Fund;
@@ -167,7 +168,7 @@ contract Bet is BaseSingleTokenStaking {
         stakingRewards.withdraw(amount);
 
         lp.safeApprove(address(converter), amount);
-        converter.removeLiquidityAndConvert(amount, token0Percentage, msg.sender);
+        converter.removeLiquidityAndConvert(IPancakePair(address(lp)), amount, token0Percentage, msg.sender);
 
         emit Withdrawn(msg.sender, amount);
     }
@@ -199,7 +200,7 @@ contract Bet is BaseSingleTokenStaking {
             // substract bonusShare from bonus
             bonus = (bonus - bonusShare);
 
-            IERC20 rewardToken = _getRewardToken();
+            (IERC20 rewardToken, IERC20 otherToken) = isToken0RewardsToken ? (token0, token1) : (token1, token0);
             // Transfer from liquidityProvider to front the rewards if user withdraw during Lock state
             if (state == State.Lock) {
                 rewardToken.safeTransferFrom(liquidityProvider, address(this), bonusShare);
@@ -207,7 +208,7 @@ contract Bet is BaseSingleTokenStaking {
 
             rewardToken.safeApprove(address(converter), bonusShare);
             uint256 convertPercentage = isToken0RewardsToken ? 100 - token0Percentage : token0Percentage;
-            converter.convert(address(rewardToken), bonusShare, convertPercentage, 0, msg.sender);
+            converter.convert(address(rewardToken), bonusShare, convertPercentage, address(otherToken), 0, msg.sender);
             emit RewardPaid(msg.sender, bonusShare);
         }
     }
