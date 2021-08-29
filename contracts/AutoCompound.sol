@@ -4,10 +4,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BaseSingleTokenStaking.sol";
 
-/// @title A staking contract wrapper for single asset in/out, with autocompound functionality.
-/// autocompound function collects the reward earned, convert them to staking token and stake
+/// @title A wrapper contract over StakingRewards contract that allows single asset in/out,
+/// with autocompound functionality. Autocompound function collects the reward earned, convert
+/// them to staking token and stake.
 /// @notice Asset tokens are token0 and token1. Staking token is the LP token of token0/token1.
-/// User will be earning LP tokens compounded, not the reward token from StakingRewards contract
+/// User will be earning LP tokens compounded, not the reward token from StakingRewards contract.
 contract AutoCompound is BaseSingleTokenStaking {
     using SafeERC20 for IERC20;
 
@@ -38,20 +39,20 @@ contract AutoCompound is BaseSingleTokenStaking {
 
     /* ========== VIEWS ========== */
 
-    /// @dev Get the reward earned by specified account
+    /// @notice Get the reward share earned by specified account.
     function _share(address account) public view returns (uint256) {
         uint256 rewardPerToken = stakingRewards.rewardPerToken();
         return (_balances[account] * (rewardPerToken - _userRewardPerTokenPaid[account]) / (1e18)) + _rewards[account];
     }
 
-    /// @dev Get the reward earned by all accounts in this contract
-    /// We track the total reward with _rewards[address(this)] and _userRewardPerTokenPaid[address(this)]
+    /// @notice Get the total reward share in this contract.
+    /// @notice Total reward is tracked with `_rewards[address(this)]` and `_userRewardPerTokenPaid[address(this)]`
     function _shareTotal() public view returns (uint256) {
         uint256 rewardPerToken = stakingRewards.rewardPerToken();
         return (_totalSupply * (rewardPerToken - _userRewardPerTokenPaid[address(this)]) / (1e18)) + _rewards[address(this)];
     }
 
-    /// @dev Get the compounded LP amount earned by specified account
+    /// @notice Get the compounded LP amount earned by specified account.
     function earned(address account) public override view returns (uint256) {
         uint256 rewardsShare;
         if (account == address(this)){
@@ -79,9 +80,9 @@ contract AutoCompound is BaseSingleTokenStaking {
         require(amount > 0, "Cannot withdraw 0");
 
         // Update records:
-        // substract withdrawing lp amount from total lp amount staked
+        // substract withdrawing LP amount from total LP amount staked
         _totalSupply = (_totalSupply - amount);
-        // substract withdrawing lp amount from user's balance
+        // substract withdrawing LP amount from user's balance
         _balances[msg.sender] = (_balances[msg.sender] - amount);
 
         // Withdraw
@@ -93,14 +94,14 @@ contract AutoCompound is BaseSingleTokenStaking {
         emit Withdrawn(msg.sender, amount);
     }
 
-    /// @notice Get the reward out and convert one asset to another. Note that reward token is either token0 or token1
+    /// @notice Get the reward out and convert one asset to another. Note that reward is LP token.
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function getReward(uint256 token0Percentage) public updateReward(msg.sender)  {        
+    function getReward(uint256 token0Percentage) override public updateReward(msg.sender)  {        
         uint256 reward = _rewards[msg.sender];
         uint256 totalReward = _rewards[address(this)];
         if (reward > 0) {
             // compoundedLPRewardAmount: based on user's reward and totalReward,
-            // determine how many compouned(read: extra) lp amount can user take away.
+            // determine how many compouned(read: extra) LP amount can user take away.
             // NOTE: totalReward = _rewards[address(this)];
             uint256 compoundedLPRewardAmount = lpAmountCompounded * reward / totalReward;
 
@@ -121,17 +122,16 @@ contract AutoCompound is BaseSingleTokenStaking {
         }
     }
 
-    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another
+    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     function exit(uint256 token0Percentage) external override {
         withdraw(token0Percentage, _balances[msg.sender]);
         getReward(token0Percentage);
     }
 
-    /// @notice Get all reward out, convert half to other token, provide liquidity and stake
-    /// the lp tokens back into StakingRewards
-    /// @dev LP tokens staked this way will be tracked in lpAmountCompounded instead of single account's balance
-    /// since they belong to all stakers
+    /// @notice Get all reward out from StakingRewards contract, convert half to other token, provide liquidity and stake
+    /// the LP tokens back into StakingRewards contract.
+    /// @dev LP tokens staked this way will be tracked in `lpAmountCompounded`.
     function compound() external nonReentrant updateReward(address(0)) {
         // Get this contract's reward from StakingRewards
         uint256 rewardsLeft = stakingRewards.earned(address(this));

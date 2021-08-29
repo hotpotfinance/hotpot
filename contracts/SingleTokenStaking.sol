@@ -4,9 +4,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BaseSingleTokenStaking.sol";
 
-/// @title A staking contract wrapper for single asset in/out
+/// @title A wrapper contract over StakingRewards contract that allows single asset in/out.
+/// 1. User provide token0 or token1
+/// 2. contract converts half to the other token and provide liquidity
+/// 3. stake into underlying StakingRewards contract
 /// @notice Asset tokens are token0 and token1. Staking token is the LP token of token0/token1.
-/// User will be earning the reward token from StakingRewards contract
 contract SingleTokenStaking is BaseSingleTokenStaking {
     using SafeERC20 for IERC20;
 
@@ -44,7 +46,7 @@ contract SingleTokenStaking is BaseSingleTokenStaking {
 
     /* ========== VIEWS ========== */
 
-    /// @dev Get the reward earned by specified account
+    /// @notice Get the reward earned by specified account.
     function earned(address account) public override view returns (uint256) {
         uint256 rewardPerToken = stakingRewards.rewardPerToken();
         return (_balances[account] * (rewardPerToken - _userRewardPerTokenPaid[account]) / (1e18)) + _rewards[account];
@@ -52,7 +54,7 @@ contract SingleTokenStaking is BaseSingleTokenStaking {
 
     /* ========== MUTATIVE FUNCTIONS ========== */
 
-    /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another
+    /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     /// @param amount Amount of stake to withdraw
     function withdraw(uint256 token0Percentage, uint256 amount) public override nonReentrant updateReward(msg.sender) {
@@ -71,7 +73,7 @@ contract SingleTokenStaking is BaseSingleTokenStaking {
 
     /// @notice Get the reward out and convert one asset to another. Note that reward token is either token0 or token1
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function getReward(uint256 token0Percentage) public updateReward(msg.sender)  {        
+    function getReward(uint256 token0Percentage) override public updateReward(msg.sender)  {        
         // Get rewards out and convert rewards
         stakingRewards.getReward();
         uint256 reward = _rewards[msg.sender];

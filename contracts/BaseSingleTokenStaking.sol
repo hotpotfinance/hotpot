@@ -9,7 +9,10 @@ import "./IStakingRewards.sol";
 import "./IConverter.sol";
 
 // Modified from https://docs.synthetix.io/contracts/source/contracts/stakingrewards
-/// @title A staking contract wrapper for single asset in/out
+/// @title A wrapper contract over StakingRewards contract that allows single asset in/out.
+/// 1. User provide token0 or token1
+/// 2. contract converts half to the other token and provide liquidity
+/// 3. stake into underlying StakingRewards contract
 /// @notice Asset tokens are token0 and token1. Staking token is the LP token of token0/token1.
 abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
@@ -48,7 +51,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         return _balances[account];
     }
 
-    /// @dev Get the reward earned by specified account
+    /// @notice Get the reward earned by specified account.
     function earned(address account) public virtual view returns (uint256) {}
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -86,7 +89,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     }
 
     /// @notice Taken token0 or token1 in, convert half to the other token, provide liquidity and stake
-    /// the lp tokens into StakingRewards. Leftover token0 or token1 will be returned to msg.sender.
+    /// the LP tokens into StakingRewards contract. Leftover token0 or token1 will be returned to msg.sender.
     /// @param isToken0 Determine if token0 is the token msg.sender going to use for staking, token1 otherwise
     /// @param amount Amount of token0 or token1 to stake
     function stake(bool isToken0, uint256 amount) public virtual nonReentrant notPaused updateReward(msg.sender) {
@@ -100,8 +103,13 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         emit Staked(msg.sender, lpAmount);
     }
 
+    /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
     function withdraw(uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
 
+    /// @notice Get the reward out and convert one asset to another.
+    function getReward(uint256 token0Percentage) public virtual updateReward(msg.sender) {}
+
+    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
     function exit(uint256 token0Percentage) external virtual {}
 
     /* ========== RESTRICTED FUNCTIONS ========== */

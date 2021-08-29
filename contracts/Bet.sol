@@ -6,10 +6,18 @@ import "./BaseSingleTokenStaking.sol";
 import "./IPancakeRouter.sol";
 import "./ITempStakeManager.sol";
 
-/// @title A staking contract wrapper for single asset in/out, with operator periodically investing
-/// accrued rewards and return them with profits.
+/// @title A wrapper contract over StakingRewards contract that allows single asset in/out,
+/// with operator periodically investing accrued rewards and return them with profits.
+/// Contract has two states, Fund state and Lock state:
+///     - During Fund state, everything is normal.
+///     - During Lock state, there are some special rules applied when user wants to `stake` and `getReward`.
+/// - When operator invests accrued rewards, the contract enters Lock state.
+///     - During Lock state, new stake will be transferred to TempStakeManager contract and accrue rewards there.
+///     - Operator need to transfer users' stake from TempStakeManager contract after contract enters Fund state.
+///     - If user `getReward` during Lock state, a penalty will be applied. User will not get all rewards he earned.
+/// - When operator returns rewards, the contract enters Fund state.
 /// @notice Asset tokens are token0 and token1. Staking token is the LP token of token0/token1.
-/// User will be earning returned rewards plus profit
+/// User will be earning returned rewards.
 contract Bet is BaseSingleTokenStaking {
     using SafeERC20 for IERC20;
 
@@ -64,26 +72,26 @@ contract Bet is BaseSingleTokenStaking {
 
     /* ========== VIEWS ========== */
 
-    /// @dev Get the State of the contract
+    /// @notice Get the State of the contract.
     function getState() public view returns (string memory) {
         if (state == State.Fund) return "Fund";
         else return "Lock";
     }
 
-    /// @dev Get the reward earned by specified account
+    /// @notice Get the reward share earned by specified account.
     function _share(address account) public view returns (uint256) {
         uint256 rewardPerToken = stakingRewards.rewardPerToken();
         return (_balances[account] * (rewardPerToken - _userRewardPerTokenPaid[account]) / (1e18)) + _rewards[account];
     }
 
-    /// @dev Get the reward earned by all accounts in this contract
-    /// We track the total reward with _rewards[address(this)] and _userRewardPerTokenPaid[address(this)]
+    /// @notice Get the total reward share in this contract.
+    /// @notice Total reward is tracked with `_rewards[address(this)]` and `_userRewardPerTokenPaid[address(this)]`
     function _shareTotal() public view returns (uint256) {
         uint256 rewardPerToken = stakingRewards.rewardPerToken();
         return (_totalSupply * (rewardPerToken - _userRewardPerTokenPaid[address(this)]) / (1e18)) + _rewards[address(this)];
     }
 
-    /// @dev Get the bonus amount earned by specified account
+    /// @notice Get the reward amount earned by specified account.
     function earned(address account) public override view returns (uint256) {
         uint256 rewardsShare;
         if (account == address(this)){
@@ -131,8 +139,10 @@ contract Bet is BaseSingleTokenStaking {
     }
 
     /// @notice Taken token0 or token1 in, convert half to the other token, provide liquidity and stake
-    /// the lp tokens into StakingRewards. Leftover token0 or token1 will be returned to msg.sender.
-    /// Can only stake when state is not in Lock state.
+    /// the LP tokens into StakingRewards. Leftover token0 or token1 will be returned to msg.sender.
+    /// Note that if user stake when contract in Lock state. The stake will be transfered to TempStakeManager contract
+    /// and accrue rewards there. Operator need to transfer users' stake from TempStakeManager contract after
+    /// contract enters Fund state.
     /// @param isToken0 Determine if token0 is the token msg.sender going to use for staking, token1 otherwise
     /// @param amount Amount of token0 or token1 to stake
     function stake(bool isToken0, uint256 amount) public override nonReentrant notPaused updateReward(msg.sender) {
@@ -145,23 +155,22 @@ contract Bet is BaseSingleTokenStaking {
             _balances[msg.sender] = _balances[msg.sender] + lpAmount;
             emit Staked(msg.sender, lpAmount);
         } else {
-            // If it's in Lock state, transfer lp to TempStakeManager
+            // If it's in Lock state, transfer LP to TempStakeManager
             lp.transfer(address(tempStakeManager), lpAmount);
             tempStakeManager.stake(msg.sender, lpAmount);
         }
     }
 
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
-    /// If withdraw during Lock state, only part of the reward can be claimed.
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     /// @param amount Amount of stake to withdraw
     function withdraw(uint256 token0Percentage, uint256 amount) public override nonReentrant updateReward(msg.sender) {
         require(amount > 0, "Cannot withdraw 0");
 
         // Update records:
-        // substract withdrawing lp amount from total lp amount staked
+        // substract withdrawing LP amount from total LP amount staked
         _totalSupply = (_totalSupply - amount);
-        // substract withdrawing lp amount from user's balance
+        // substract withdrawing LP amount from user's balance
         _balances[msg.sender] = (_balances[msg.sender] - amount);
 
         // Withdraw
@@ -173,9 +182,11 @@ contract Bet is BaseSingleTokenStaking {
         emit Withdrawn(msg.sender, amount);
     }
 
-    /// @notice Get the reward out and convert one asset to another. Note that reward token is either token0 or token1
+    /// @notice Get the reward out and convert one asset to another. Note that reward token is either token0 or token1.
+    /// During Lock state, liquidity provider need to front the rewards user is trying to get, so a portion of rewards
+    /// , i.e., penalty,  will be confiscated and paid to liquiditiy provider.
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function getReward(uint256 token0Percentage) public updateReward(msg.sender) {        
+    function getReward(uint256 token0Percentage) override public updateReward(msg.sender) {        
         uint256 reward = _rewards[msg.sender];
         uint256 totalReward = _rewards[address(this)];
         if (reward > 0) {
@@ -213,7 +224,7 @@ contract Bet is BaseSingleTokenStaking {
         }
     }
 
-    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another
+    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     function exit(uint256 token0Percentage) external override {
         withdraw(token0Percentage, _balances[msg.sender]);
@@ -223,6 +234,8 @@ contract Bet is BaseSingleTokenStaking {
 
     /* ========== RESTRICTED FUNCTIONS ========== */
 
+    /// @notice Transfer users' stake from TempStakeManager contract back to this contract.
+    /// @param stakers List of stakers to transfer their stakes from TempStakeManager contract
     function transferStake(address[] calldata stakers) external onlyOperator notLocked {
         for (uint256 i = 0; i < stakers.length; i++) {
             address staker = stakers[i];
@@ -240,6 +253,8 @@ contract Bet is BaseSingleTokenStaking {
         tempStakeManager.clearStakerList();
     }
 
+    /// @notice Instruct TempStakeManager contract to exit the user: return LP tokens and rewards to user.
+    /// @param stakers List of stakers to exit
     function abortFromTempStakeManager(address[] calldata stakers) external onlyOperator {
         for (uint256 i = 0; i < stakers.length; i++) {
             address staker = stakers[i];
@@ -247,6 +262,9 @@ contract Bet is BaseSingleTokenStaking {
         }
     }
 
+    /// @notice getReward function for liquidity provider. Liquidity provider is not subject to the penalty
+    /// when getReward during Lock state. Liquidity provider will earn rewards because the penalty user paid
+    /// goes to liquidity provider.
     function liquidityProviderGetBonus() external nonReentrant onlyLiquidityProvider updateReward(liquidityProvider) {
         uint256 lpRewardsShare = _rewards[liquidityProvider];
         if (lpRewardsShare > 0) {
@@ -263,8 +281,8 @@ contract Bet is BaseSingleTokenStaking {
         }
     }
 
-    /// @notice Get all reward out, swap them to cookToken and transfer to operator so
-    /// operator can invest them in deritive products
+    /// @notice Get all reward out from StakingRewards contract, swap them to cookToken and transfer them to
+    /// operator so operator can invest them.
     function cook() external nonReentrant notLocked onlyOperator {
         // Get this contract's reward from StakingRewards
         uint256 rewardsLeft = stakingRewards.earned(address(this));
@@ -280,7 +298,7 @@ contract Bet is BaseSingleTokenStaking {
         }
     }
 
-    /// @notice Return cookToken along with profit and swap them to reward token
+    /// @notice Opreator returns cookToken along with profit and swap them to reward token.
     function serve(uint256 cookTokenAmount) external nonReentrant locked onlyOperator {
         // Transfer cookToken from operator
         cookToken.safeTransferFrom(operator, address(this), cookTokenAmount);
