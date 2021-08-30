@@ -31,7 +31,6 @@ contract Bet is BaseSingleTokenStaking {
     address public liquidityProvider;
     IPancakeRouter public router;
     ITempStakeManager public tempStakeManager;
-    IERC20 public cookToken;
     uint256 public penaltyPercentage;
 
     /* ========== CONSTRUCTOR ========== */
@@ -46,7 +45,6 @@ contract Bet is BaseSingleTokenStaking {
         address _liquidityProvider,
         IPancakeRouter _router,
         ITempStakeManager _tempStakeManager,
-        IERC20 _cookToken,
         uint256 _penaltyPercentage
     ) external {
         require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked("")), "Already initialized");
@@ -66,7 +64,6 @@ contract Bet is BaseSingleTokenStaking {
         liquidityProvider = _liquidityProvider;
         router = _router;
         tempStakeManager = _tempStakeManager;
-        cookToken = _cookToken;
         penaltyPercentage = _penaltyPercentage;
     }
 
@@ -118,24 +115,6 @@ contract Bet is BaseSingleTokenStaking {
         } else {
             rewardToken = token1;
         }
-    }
-
-    function _swap(uint256 _swapAmount, address _in, address _out, address _recipient) internal returns (uint256) {
-        if (_swapAmount == 0) return 0;
-
-        IERC20(_in).safeApprove(address(router), _swapAmount);
-
-        address[] memory path = new address[](2);
-        path[0] = _in;
-        path[1] = _out;
-        uint256[] memory amounts = router.swapExactTokensForTokens(
-            _swapAmount,
-            0,
-            path,
-            _recipient,
-            block.timestamp + 60
-        );
-        return amounts[1]; // swapped amount
     }
 
     /// @notice Taken token0 or token1 in, convert half to the other token, provide liquidity and stake
@@ -281,34 +260,34 @@ contract Bet is BaseSingleTokenStaking {
         }
     }
 
-    /// @notice Get all reward out from StakingRewards contract, swap them to cookToken and transfer them to
+    /// @notice Get all reward out from StakingRewards contract and transfer them to
     /// operator so operator can invest them.
     function cook() external nonReentrant notLocked onlyOperator {
         // Get this contract's reward from StakingRewards
         uint256 rewardsLeft = stakingRewards.earned(address(this));
         if (rewardsLeft > 0) {
             stakingRewards.getReward();
-
-            // Swap reward to cookToken and transfer to operator
-            uint256 cookTokenAmount = _swap(rewardsLeft, address(_getRewardToken()), address(cookToken), operator);
-
-            state = State.Lock;
-
-            emit Cook(rewardsLeft, cookTokenAmount);
         }
+        // Transfer all rewards to operator
+        IERC20 rewardToken = _getRewardToken();
+        uint256 allRewards = rewardToken.balanceOf(address(this));
+        rewardToken.safeTransfer(operator, allRewards);
+
+        state = State.Lock;
+
+        emit Cook(allRewards);
     }
 
-    /// @notice Opreator returns cookToken along with profit and swap them to reward token.
-    function serve(uint256 cookTokenAmount) external nonReentrant locked onlyOperator {
-        // Transfer cookToken from operator
-        cookToken.safeTransferFrom(operator, address(this), cookTokenAmount);
-        // Swap cookToken to reward
-        uint256 rewardsAmount = _swap(cookTokenAmount, address(cookToken), address(_getRewardToken()), address(this));
+    /// @notice Opreator returns reward.
+    function serve(uint256 amount) external nonReentrant locked onlyOperator {
+        // Transfer reward from operator
+        IERC20 rewardToken = _getRewardToken();
+        rewardToken.safeTransferFrom(operator, address(this), amount);
 
-        bonus = bonus + rewardsAmount;
+        bonus = amount;
         state = State.Fund;
 
-        emit Serve(cookTokenAmount, rewardsAmount);
+        emit Serve(amount);
     }
 
     function updateOperator(address newOperator) external onlyOwner {
@@ -373,6 +352,6 @@ contract Bet is BaseSingleTokenStaking {
     /* ========== EVENTS ========== */
 
     event RewardPaid(address indexed user, uint256 reward);
-    event Cook(uint256 rewardAmount, uint256 cookTokenAmount);
-    event Serve(uint256 cookTokenAmount, uint256 rewardAmount);
+    event Cook(uint256 rewardAmount);
+    event Serve(uint256 rewardAmount);
 }
