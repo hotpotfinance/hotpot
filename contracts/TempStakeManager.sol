@@ -63,7 +63,7 @@ contract TempStakeManager is BaseSingleTokenStaking {
     /* ========== MUTATIVE FUNCTIONS ========== */
 
     /// @notice Override and intentionally failing the normal stake function
-    function stake(bool isToken0, uint256 amount) public override {
+    function stake(bool isToken0, uint256 amount, uint256 minReceivedLPAmount) public override {
         revert("This function is not available");
     }
 
@@ -83,12 +83,17 @@ contract TempStakeManager is BaseSingleTokenStaking {
     }
 
     /// @notice Override and intentionally failing the normal withdraw function
-    function withdraw(uint256 token0Percentage, uint256 amount) public override {
+    function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage, uint256 amount) public override {
+        revert("This function is not available");
+    }
+
+    /// @notice Override and intentionally failing the normal getReward function
+    function getReward(uint256 token0Percentage) public override {
         revert("This function is not available");
     }
 
     /// @notice Override and intentionally failing the normal exit function
-    function exit(uint256 token0Percentage) public override {
+    function exit(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) public override {
         revert("This function is not available");
     }
 

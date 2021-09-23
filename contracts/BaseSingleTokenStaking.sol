@@ -56,7 +56,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
 
     /* ========== MUTATIVE FUNCTIONS ========== */
 
-    function _convertAndAddLiquidity(bool isToken0, uint256 amount) internal returns (uint256 lpAmount) {
+    function _convertAndAddLiquidity(bool isToken0, uint256 amount, uint256 minReceivedLPAmount) internal returns (uint256 lpAmount) {
         require(amount > 0, "Cannot stake 0");
         uint256 lpAmountBefore = lp.balanceOf(address(this));
         uint256 token0AmountBefore = token0.balanceOf(address(this));
@@ -66,11 +66,11 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         if (isToken0) {
             token0.safeTransferFrom(msg.sender, address(this), amount);
             token0.safeApprove(address(converter), amount);
-            converter.convertAndAddLiquidity(address(token0), amount, address(token1), 0, address(this));
+            converter.convertAndAddLiquidity(address(token0), amount, address(token1), minReceivedLPAmount, address(this));
         } else {
             token1.safeTransferFrom(msg.sender, address(this), amount);
             token1.safeApprove(address(converter), amount);
-            converter.convertAndAddLiquidity(address(token1), amount, address(token0), 0, address(this));
+            converter.convertAndAddLiquidity(address(token1), amount, address(token0), minReceivedLPAmount, address(this));
         }
 
         uint256 lpAmountAfter = lp.balanceOf(address(this));
@@ -92,8 +92,9 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     /// the LP tokens into StakingRewards contract. Leftover token0 or token1 will be returned to msg.sender.
     /// @param isToken0 Determine if token0 is the token msg.sender going to use for staking, token1 otherwise
     /// @param amount Amount of token0 or token1 to stake
-    function stake(bool isToken0, uint256 amount) public virtual nonReentrant notPaused updateReward(msg.sender) {
-        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount);
+    /// @param minReceivedLPAmount Minimum amount of LP token received when adding liquidity
+    function stake(bool isToken0, uint256 amount, uint256 minReceivedLPAmount) public virtual nonReentrant notPaused updateReward(msg.sender) {
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedLPAmount);
         lp.safeApprove(address(stakingRewards), lpAmount);
         stakingRewards.stake(lpAmount);
 
@@ -104,13 +105,13 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     }
 
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
-    function withdraw(uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
+    function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
 
     /// @notice Get the reward out and convert one asset to another.
     function getReward(uint256 token0Percentage) public virtual updateReward(msg.sender) {}
 
     /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
-    function exit(uint256 token0Percentage) external virtual {}
+    function exit(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external virtual {}
 
     /* ========== RESTRICTED FUNCTIONS ========== */
 

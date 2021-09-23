@@ -124,8 +124,9 @@ contract Bet is BaseSingleTokenStaking {
     /// contract enters Fund state.
     /// @param isToken0 Determine if token0 is the token msg.sender going to use for staking, token1 otherwise
     /// @param amount Amount of token0 or token1 to stake
-    function stake(bool isToken0, uint256 amount) public override nonReentrant notPaused updateReward(msg.sender) {
-        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount);
+    /// @param minReceivedLPAmount Minimum amount of LP token received when adding liquidity
+    function stake(bool isToken0, uint256 amount, uint256 minReceivedLPAmount) public override nonReentrant notPaused updateReward(msg.sender) {
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedLPAmount);
 
         if (state == State.Fund) {
             lp.safeApprove(address(stakingRewards), lpAmount);
@@ -141,9 +142,16 @@ contract Bet is BaseSingleTokenStaking {
     }
 
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     /// @param amount Amount of stake to withdraw
-    function withdraw(uint256 token0Percentage, uint256 amount) public override nonReentrant updateReward(msg.sender) {
+    function withdraw(
+        uint256 minToken0AmountConverted,
+        uint256 minToken1AmountConverted,
+        uint256 token0Percentage,
+        uint256 amount
+    ) public override nonReentrant updateReward(msg.sender) {
         require(amount > 0, "Cannot withdraw 0");
 
         // Update records:
@@ -156,7 +164,14 @@ contract Bet is BaseSingleTokenStaking {
         stakingRewards.withdraw(amount);
 
         lp.safeApprove(address(converter), amount);
-        converter.removeLiquidityAndConvert(IPancakePair(address(lp)), amount, token0Percentage, msg.sender);
+        converter.removeLiquidityAndConvert(
+            IPancakePair(address(lp)),
+            amount,
+            minToken0AmountConverted,
+            minToken1AmountConverted,
+            token0Percentage,
+            msg.sender
+        );
 
         emit Withdrawn(msg.sender, amount);
     }
@@ -204,9 +219,11 @@ contract Bet is BaseSingleTokenStaking {
     }
 
     /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function exit(uint256 token0Percentage) external override {
-        withdraw(token0Percentage, _balances[msg.sender]);
+    function exit(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external override {
+        withdraw(minToken0AmountConverted, minToken1AmountConverted, token0Percentage, _balances[msg.sender]);
         getReward(token0Percentage);
         tempStakeManager.abort(msg.sender);
     }
