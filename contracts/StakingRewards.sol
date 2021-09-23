@@ -710,6 +710,7 @@ contract StakingRewards is IStakingRewards, RewardsDistributionRecipient, Reentr
     // End rewards emission earlier
     function updatePeriodFinish(uint timestamp) external onlyOwner updateReward(address(0)) {
         periodFinish = timestamp;
+        emit UpdatePeriodFinish(timestamp);
     }
 
     // Added to support recovering LP Rewards from other systems such as BAL to be distributed to holders
@@ -742,6 +743,7 @@ contract StakingRewards is IStakingRewards, RewardsDistributionRecipient, Reentr
 
     /* ========== EVENTS ========== */
 
+    event UpdatePeriodFinish(uint256 newPeriodFinish);
     event RewardAdded(uint256 reward);
     event Staked(address indexed user, uint256 amount);
     event Withdrawn(address indexed user, uint256 amount);
