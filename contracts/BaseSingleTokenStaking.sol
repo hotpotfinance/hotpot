@@ -56,7 +56,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
 
     /* ========== MUTATIVE FUNCTIONS ========== */
 
-    function _convertAndAddLiquidity(bool isToken0, uint256 amount, uint256 minReceivedLPAmount) internal returns (uint256 lpAmount) {
+    function _convertAndAddLiquidity(bool isToken0, uint256 amount, uint256 minReceivedTokenAmountSwap) internal returns (uint256 lpAmount) {
         require(amount > 0, "Cannot stake 0");
         uint256 lpAmountBefore = lp.balanceOf(address(this));
         uint256 token0AmountBefore = token0.balanceOf(address(this));
@@ -66,11 +66,11 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         if (isToken0) {
             token0.safeTransferFrom(msg.sender, address(this), amount);
             token0.safeApprove(address(converter), amount);
-            converter.convertAndAddLiquidity(address(token0), amount, address(token1), minReceivedLPAmount, address(this));
+            converter.convertAndAddLiquidity(address(token0), amount, address(token1), minReceivedTokenAmountSwap, address(this));
         } else {
             token1.safeTransferFrom(msg.sender, address(this), amount);
             token1.safeApprove(address(converter), amount);
-            converter.convertAndAddLiquidity(address(token1), amount, address(token0), minReceivedLPAmount, address(this));
+            converter.convertAndAddLiquidity(address(token1), amount, address(token0), minReceivedTokenAmountSwap, address(this));
         }
 
         uint256 lpAmountAfter = lp.balanceOf(address(this));
@@ -92,9 +92,9 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     /// the LP tokens into StakingRewards contract. Leftover token0 or token1 will be returned to msg.sender.
     /// @param isToken0 Determine if token0 is the token msg.sender going to use for staking, token1 otherwise
     /// @param amount Amount of token0 or token1 to stake
-    /// @param minReceivedLPAmount Minimum amount of LP token received when adding liquidity
-    function stake(bool isToken0, uint256 amount, uint256 minReceivedLPAmount) public virtual nonReentrant notPaused updateReward(msg.sender) {
-        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedLPAmount);
+    /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
+    function stake(bool isToken0, uint256 amount, uint256 minReceivedTokenAmountSwap) public virtual nonReentrant notPaused updateReward(msg.sender) {
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedTokenAmountSwap);
         lp.safeApprove(address(stakingRewards), lpAmount);
         stakingRewards.stake(lpAmount);
 
