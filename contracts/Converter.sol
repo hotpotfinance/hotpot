@@ -51,6 +51,7 @@ contract Owned {
 contract Converter is Owned, UUPSUpgradeable {
     using SafeERC20 for IERC20;
 
+    address public NATIVE_TOKEN;
     string public name;
     IPancakeRouter public router;
 
@@ -58,10 +59,11 @@ contract Converter is Owned, UUPSUpgradeable {
         return _getImplementation();
     }
 
-    function initialize(string memory _name, address _owner, IPancakeRouter _router) external {
+    function initialize(address _NATIVE_TOKEN, string memory _name, address _owner, IPancakeRouter _router) external {
         require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked("")), "Already initialized");
         super.initializeOwner(_owner);
 
+        NATIVE_TOKEN = _NATIVE_TOKEN;
         name = _name;
         router = _router;
     }
@@ -71,9 +73,17 @@ contract Converter is Owned, UUPSUpgradeable {
 
         IERC20(_in).safeApprove(address(router), _swapAmount);
 
-        address[] memory path = new address[](2);
-        path[0] = _in;
-        path[1] = _out;
+        address[] memory path;
+        if (_in == NATIVE_TOKEN || _out == NATIVE_TOKEN) {
+            path = new address[](2);
+            path[0] = _in;
+            path[1] = _out;
+        } else {
+            path = new address[](3);
+            path[0] = _in;
+            path[1] = NATIVE_TOKEN;
+            path[2] = _out;
+        }
         uint256[] memory amounts = router.swapExactTokensForTokens(
             _swapAmount,
             _minReceiveAmount,
@@ -81,7 +91,12 @@ contract Converter is Owned, UUPSUpgradeable {
             _recipient,
             block.timestamp + 60
         );
-        return amounts[1]; // swapped amount
+
+        if (_in == NATIVE_TOKEN || _out == NATIVE_TOKEN) {
+            return amounts[1]; // swapped amount
+        } else {
+            return amounts[2];
+        }
     }
 
     /// @notice Convert specified amount of tokenIn to tokenOut and send both to recipient
