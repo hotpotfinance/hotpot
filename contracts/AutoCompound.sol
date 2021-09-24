@@ -178,11 +178,11 @@ contract AutoCompound is BaseSingleTokenStaking {
             if (address(rewardToken) == address(token0)) {
                 // Convert token0 to LP tokens
                 token0.safeApprove(address(converter), rewardsLeft);
-                converter.convertAndAddLiquidity(address(token0), rewardsLeft, address(token1), 0, address(this));
+                converter.convertAndAddLiquidity(address(token0), rewardsLeft, address(token1), 0, 0, 0, address(this));
             } else if (address(rewardToken) == address(token1)) {
                 // Convert token1 to LP tokens
                 token1.safeApprove(address(converter), rewardsLeft);
-                converter.convertAndAddLiquidity(address(token1), rewardsLeft, address(token0), 0, address(this));
+                converter.convertAndAddLiquidity(address(token1), rewardsLeft, address(token0), 0, 0, 0, address(this));
             } else {
                 // If reward token is neither token0 or token1, convert to token0 first
                 uint256 token0BalanceBefore = token0.balanceOf(address(this));
@@ -194,7 +194,7 @@ contract AutoCompound is BaseSingleTokenStaking {
 
                 // Convert converted token0 to LP tokens
                 token0.safeApprove(address(converter), convertedToken0Amount);
-                converter.convertAndAddLiquidity(address(token0), convertedToken0Amount, address(token1), 0, address(this));
+                converter.convertAndAddLiquidity(address(token0), convertedToken0Amount, address(token1), 0, 0, 0, address(this));
             }
 
             uint256 lpAmountAfter = lp.balanceOf(address(this));

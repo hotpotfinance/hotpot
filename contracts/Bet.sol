@@ -124,9 +124,17 @@ contract Bet is BaseSingleTokenStaking {
     /// contract enters Fund state.
     /// @param isToken0 Determine if token0 is the token msg.sender going to use for staking, token1 otherwise
     /// @param amount Amount of token0 or token1 to stake
-    /// @param minReceivedLPAmount Minimum amount of LP token received when adding liquidity
-    function stake(bool isToken0, uint256 amount, uint256 minReceivedLPAmount) public override nonReentrant notPaused updateReward(msg.sender) {
-        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedLPAmount);
+    /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
+    /// @param minToken0AmountAddLiq The minimum amount of token0 received when adding liquidity
+    /// @param minToken1AmountAddLiq The minimum amount of token1 received when adding liquidity
+    function stake(
+        bool isToken0,
+        uint256 amount,
+        uint256 minReceivedTokenAmountSwap,
+        uint256 minToken0AmountAddLiq,
+        uint256 minToken1AmountAddLiq
+    ) public override nonReentrant notPaused updateReward(msg.sender) {
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
 
         if (state == State.Fund) {
             lp.safeApprove(address(stakingRewards), lpAmount);

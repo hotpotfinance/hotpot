@@ -10,7 +10,15 @@ interface IConverter {
         uint256 _minReceiveAmount,
         address _recipient
     ) external;
-    function convertAndAddLiquidity(address _inTokenAddress, uint256 _amount, address _outTokenAddress, uint256 _minReceiveAmount, address _recipient) external;
+    function convertAndAddLiquidity(
+        address _inTokenAddress,
+        uint256 _amount,
+        address _outTokenAddress,
+        uint256 _minReceiveAmountSwap,
+        uint256 _minInTokenAmountAddLiq,
+        uint256 _minOutTokenAmountAddLiq,
+        address _recipient
+    ) external;
     function removeLiquidityAndConvert(
         IPancakePair _lp,
         uint256 _lpAmount,

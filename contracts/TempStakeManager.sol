@@ -63,7 +63,13 @@ contract TempStakeManager is BaseSingleTokenStaking {
     /* ========== MUTATIVE FUNCTIONS ========== */
 
     /// @notice Override and intentionally failing the normal stake function
-    function stake(bool isToken0, uint256 amount, uint256 minReceivedLPAmount) public override {
+    function stake(
+        bool isToken0,
+        uint256 amount,
+        uint256 minReceivedTokenAmountSwap,
+        uint256 minToken0AmountAddLiq,
+        uint256 minToken1AmountAddLiq
+    ) public override {
         revert("This function is not available");
     }
 
@@ -122,7 +128,7 @@ contract TempStakeManager is BaseSingleTokenStaking {
 
             // Convert rewards to LP tokens
             rewardToken.safeApprove(address(converter), reward);
-            converter.convertAndAddLiquidity(address(rewardToken), reward, address(otherToken), 0, address(this));
+            converter.convertAndAddLiquidity(address(rewardToken), reward, address(otherToken), 0, 0, 0, address(this));
 
             uint256 lpAmountAfter = lp.balanceOf(address(this));
             convertedLPAmount = (lpAmountAfter - lpAmountBefore);
