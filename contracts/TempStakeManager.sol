@@ -1,5 +1,6 @@
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BaseSingleTokenStaking.sol";
@@ -10,13 +11,13 @@ import "./IPancakeRouter.sol";
 /// When main contract calls `exit`, it withdraws stake, get reward and convert reward to LP token
 /// and transfer LP token to main contract.
 contract TempStakeManager is BaseSingleTokenStaking {
+    using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
     /* ========== STATE VARIABLES ========== */
 
     address public mainContract;
-    address[] private _stakerList;
-    uint256 public numStaker;
+    EnumerableSet.AddressSet private _stakerList;
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -45,11 +46,23 @@ contract TempStakeManager is BaseSingleTokenStaking {
 
     /* ========== VIEWS ========== */
 
-    /// @dev Get the reward earned by specified account
-    function getStakerList() public view returns (address[] memory) {
+    function getStakerAt(uint256 index) public view returns (address) {
+        return _stakerList.at(index);
+    }
+
+    function getStakersUpto(uint256 index) public view returns (address[] memory) {
+        address[] memory stakerList = new address[](index);
+        for (uint256 i = 0; i < index; i++) {
+            stakerList[i] = (_stakerList.at(i));
+        }
+        return stakerList;
+    }
+
+    function getAllStakers() public view returns (address[] memory) {
+        uint256 numStaker = _stakerList.length();
         address[] memory stakerList = new address[](numStaker);
         for (uint256 i = 0; i < numStaker; i++) {
-            stakerList[i] = (_stakerList[i]);
+            stakerList[i] = (_stakerList.at(i));
         }
         return stakerList;
     }
@@ -77,8 +90,8 @@ contract TempStakeManager is BaseSingleTokenStaking {
         lp.safeApprove(address(stakingRewards), lpAmount);
         stakingRewards.stake(lpAmount);
 
-        numStaker ++;
-        _stakerList.push(staker);
+        _stakerList.add(staker);
+
         emit Staked(staker, lpAmount);
     }
 
@@ -124,6 +137,8 @@ contract TempStakeManager is BaseSingleTokenStaking {
             emit ConvertedLP(staker, convertedLPAmount);
         }
 
+        _stakerList.remove(staker);
+
         // Transfer withdrawn LP amount plus converted LP amount
         lp.transfer(mainContract, lpAmount + convertedLPAmount);
         emit Withdrawn(staker, lpAmount);
@@ -155,11 +170,8 @@ contract TempStakeManager is BaseSingleTokenStaking {
             IERC20(rewardToken).safeTransfer(staker, reward);
             emit RewardPaid(staker, reward);
         }
-    }
 
-    function clearStakerList() public onlyMainContract {
-        delete _stakerList;
-        numStaker = 0;
+        _stakerList.remove(staker);
     }
 
     /* ========== RESTRICTED FUNCTIONS ========== */

@@ -214,10 +214,11 @@ contract Bet is BaseSingleTokenStaking {
     /* ========== RESTRICTED FUNCTIONS ========== */
 
     /// @notice Transfer users' stake from TempStakeManager contract back to this contract.
-    /// @param stakers List of stakers to transfer their stakes from TempStakeManager contract
-    function transferStake(address[] calldata stakers) external onlyOperator notLocked {
-        for (uint256 i = 0; i < stakers.length; i++) {
-            address staker = stakers[i];
+    /// @param numStakersToProcess Number of stakers to transfer their stakes from TempStakeManager contract
+    function transferStake(uint256 numStakersToProcess) external onlyOperator notLocked {
+        address[] memory stakerList = tempStakeManager.getStakersUpto(numStakersToProcess);
+        for (uint256 i = 0; i < numStakersToProcess; i++) {
+            address staker = stakerList[i];
             _updateReward(staker);
 
             (uint256 lpAmount, uint256 convertedLPAmount) = tempStakeManager.exit(staker);
@@ -229,7 +230,6 @@ contract Bet is BaseSingleTokenStaking {
             stakingRewards.stake(stakingLPAmount);
             emit Staked(staker, stakingLPAmount);
         }
-        tempStakeManager.clearStakerList();
     }
 
     /// @notice Instruct TempStakeManager contract to exit the user: return LP tokens and rewards to user.
