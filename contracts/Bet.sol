@@ -214,22 +214,19 @@ contract Bet is BaseSingleTokenStaking {
     /* ========== RESTRICTED FUNCTIONS ========== */
 
     /// @notice Transfer users' stake from TempStakeManager contract back to this contract.
-    /// @param numStakersToProcess Number of stakers to transfer their stakes from TempStakeManager contract
-    function transferStake(uint256 numStakersToProcess) external onlyOperator notLocked {
-        address[] memory stakerList = tempStakeManager.getStakersUpto(numStakersToProcess);
-        for (uint256 i = 0; i < numStakersToProcess; i++) {
-            address staker = stakerList[i];
-            _updateReward(staker);
+    /// @param stakerIndex Index of the staker to transfer his stake from TempStakeManager contract
+    function transferStake(uint256 stakerIndex, ITempStakeManager.minAmountVars memory minAmounts) external onlyOperator notLocked {
+        address staker = tempStakeManager.getStakerAt(stakerIndex);
+        _updateReward(staker);
 
-            (uint256 lpAmount, uint256 convertedLPAmount) = tempStakeManager.exit(staker);
-            uint256 stakingLPAmount = lpAmount + convertedLPAmount;
-            // Add the balance to user balance and total supply
-            _totalSupply = _totalSupply + stakingLPAmount;
-            _balances[staker] = _balances[staker] + stakingLPAmount;
-            lp.safeApprove(address(stakingRewards), stakingLPAmount);
-            stakingRewards.stake(stakingLPAmount);
-            emit Staked(staker, stakingLPAmount);
-        }
+        (uint256 lpAmount, uint256 convertedLPAmount) = tempStakeManager.exit(staker, minAmounts);
+        uint256 stakingLPAmount = lpAmount + convertedLPAmount;
+        // Add the balance to user balance and total supply
+        _totalSupply = _totalSupply + stakingLPAmount;
+        _balances[staker] = _balances[staker] + stakingLPAmount;
+        lp.safeApprove(address(stakingRewards), stakingLPAmount);
+        stakingRewards.stake(stakingLPAmount);
+        emit Staked(staker, stakingLPAmount);
     }
 
     /// @notice Instruct TempStakeManager contract to exit the user: return LP tokens and rewards to user.

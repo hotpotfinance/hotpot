@@ -14,6 +14,24 @@ contract TempStakeManager is BaseSingleTokenStaking {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
+    struct BalanceDiff {
+        uint256 balBefore;
+        uint256 balAfter;
+        uint256 balDiff;
+    }
+
+    struct RewardRelatedVars {
+        uint256 reward;
+        IERC20 rewardToken;
+        IERC20 otherToken;
+    }
+
+    struct minAmountVars {
+        uint256 rewardToToken0Swap;
+        uint256 tokenInAddLiq;
+        uint256 tokenOutAddLiq;
+    }
+
     /* ========== STATE VARIABLES ========== */
 
     address public mainContract;
@@ -108,10 +126,14 @@ contract TempStakeManager is BaseSingleTokenStaking {
     /// @notice Withdraw stake from StakingRewards, get the reward out and convert reward to LP token
     /// and transfer LP token to main contract.
     /// @param staker Account that is staking
+    /// @param minAmounts The minimum amounts of
+    /// 1. token0 expected to receive when swapping reward token for token0
+    /// 2. tokenIn expected to add when adding liquidity
+    /// 3. tokenOut expected to add when adding liquidity
     /// @return lpAmount Amount of LP token withdrawn
     /// @return convertedLPAmount Amount of LP token converted from reward
-    function exit(address staker) external onlyMainContract nonReentrant updateReward(staker) returns (uint256 lpAmount, uint256 convertedLPAmount) {
-        lpAmount = _balances[staker];
+    function exit(address staker, minAmountVars memory minAmounts) external onlyMainContract nonReentrant updateReward(staker) returns (uint256, uint256) {
+        uint256 lpAmount = _balances[staker];
 
         // Clean up staker's balance
         _totalSupply = _totalSupply - lpAmount;
@@ -121,27 +143,39 @@ contract TempStakeManager is BaseSingleTokenStaking {
 
         // Get reward and convert to LP token
         stakingRewards.getReward();
-        uint256 reward = _rewards[staker];
-        if (reward > 0) {
+        BalanceDiff memory lpAmountDiff;
+        RewardRelatedVars memory rewardVars;
+        rewardVars.reward = _rewards[staker];
+        if (rewardVars.reward > 0) {
             _rewards[staker] = 0;
 
-            (IERC20 rewardToken, IERC20 otherToken) = isToken0RewardsToken ? (token0, token1) : (token1, token0);
-            uint256 lpAmountBefore = lp.balanceOf(address(this));
+            (rewardVars.rewardToken, rewardVars.otherToken) = isToken0RewardsToken ? (token0, token1) : (token1, token0);
+            lpAmountDiff.balBefore = lp.balanceOf(address(this));
 
             // Convert rewards to LP tokens
-            rewardToken.safeApprove(address(converter), reward);
-            converter.convertAndAddLiquidity(address(rewardToken), reward, address(otherToken), 0, address(this));
+            rewardVars.rewardToken.safeApprove(address(converter), rewardVars.reward);
+            converter.convertAndAddLiquidity(
+                address(rewardVars.rewardToken),
+                rewardVars.reward,
+                address(rewardVars.otherToken),
+                minAmounts.rewardToToken0Swap,
+                minAmounts.tokenInAddLiq,
+                minAmounts.tokenOutAddLiq,
+                address(this)
+            );
 
-            uint256 lpAmountAfter = lp.balanceOf(address(this));
-            convertedLPAmount = (lpAmountAfter - lpAmountBefore);
-            emit ConvertedLP(staker, convertedLPAmount);
+            lpAmountDiff.balAfter = lp.balanceOf(address(this));
+            lpAmountDiff.balDiff = (lpAmountDiff.balAfter - lpAmountDiff.balBefore);
+            emit ConvertedLP(staker, lpAmountDiff.balDiff);
         }
 
         _stakerList.remove(staker);
 
         // Transfer withdrawn LP amount plus converted LP amount
-        lp.transfer(mainContract, lpAmount + convertedLPAmount);
+        lp.transfer(mainContract, lpAmount + lpAmountDiff.balDiff);
         emit Withdrawn(staker, lpAmount);
+
+        return (lpAmount, lpAmountDiff.balDiff);
     }
 
     /// @notice Withdraw stake from StakingRewards, get the reward out send them to staker
