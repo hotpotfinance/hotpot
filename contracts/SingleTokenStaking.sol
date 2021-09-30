@@ -87,7 +87,8 @@ contract SingleTokenStaking is BaseSingleTokenStaking {
 
     /// @notice Get the reward out and convert one asset to another. Note that reward token is either token0 or token1
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function getReward(uint256 token0Percentage) override public updateReward(msg.sender)  {        
+    /// @param minTokenAmountConverted The minimum amount of token0 or token1 received when converting one token to the other
+    function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted) override public updateReward(msg.sender)  {        
         // Get rewards out and convert rewards
         stakingRewards.getReward();
         uint256 reward = _rewards[msg.sender];
@@ -95,20 +96,21 @@ contract SingleTokenStaking is BaseSingleTokenStaking {
             _rewards[msg.sender] = 0;
             if (isToken0RewardsToken) {
                 token0.safeApprove(address(converter), reward);
-                converter.convert(address(token0), reward, 100 - token0Percentage, address(token1), 0, msg.sender);
+                converter.convert(address(token0), reward, 100 - token0Percentage, address(token1), minTokenAmountConverted, msg.sender);
             } else {
                 token1.safeApprove(address(converter), reward);
-                converter.convert(address(token1), reward, token0Percentage, address(token0), 0, msg.sender);
+                converter.convert(address(token1), reward, token0Percentage, address(token0), minTokenAmountConverted, msg.sender);
             }
         }
     }
 
     /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another
+    /// @param minTokenAmountConverted The minimum amount of token0 or token1 received when converting reward token to either one of them
     /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
     /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function exit(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external override {
+    function exit(uint256 minTokenAmountConverted, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external override {
         withdraw(minToken0AmountConverted, minToken1AmountConverted, token0Percentage, _balances[msg.sender]);
-        getReward(token0Percentage);
+        getReward(token0Percentage, minTokenAmountConverted);
     }
 }
