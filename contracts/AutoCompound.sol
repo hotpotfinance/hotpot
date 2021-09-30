@@ -186,7 +186,7 @@ contract AutoCompound is BaseSingleTokenStaking {
     /// 4. tokenOut expected to add when adding liquidity
     function compound(
         minAmountVars memory minAmounts
-    ) external nonReentrant updateReward(address(0)) {
+    ) external nonReentrant updateReward(address(0)) onlyOwner {
         // Get this contract's reward from StakingRewards
         uint256 rewardsLeft = stakingRewards.earned(address(this));
         if (rewardsLeft > 0) {
