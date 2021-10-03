@@ -122,7 +122,15 @@ contract Converter is Owned, UUPSUpgradeable {
         tokenIn.safeTransfer(_recipient, (_amount - swapAmount));
     }
 
-    function _addLiquidity(IERC20 tokenIn, uint256 _amountADesired, IERC20 tokenOut, uint256 _amountBDesired, address _to) internal {
+    function _addLiquidity(
+        IERC20 tokenIn,
+        uint256 _amountADesired,
+        uint256 _amountAMin,
+        IERC20 tokenOut,
+        uint256 _amountBDesired,
+        uint256 _amountBMin,
+        address _to
+    ) internal {
         tokenIn.safeApprove(address(router), _amountADesired);
         tokenOut.safeApprove(address(router), _amountBDesired);
 
@@ -131,8 +139,8 @@ contract Converter is Owned, UUPSUpgradeable {
             address(tokenOut),
             _amountADesired,
             _amountBDesired,
-            0, // _amountAMin
-            0, // _amountBMin
+            _amountAMin, // _amountAMin
+            _amountBMin, // _amountBMin
             _to,
             block.timestamp + 60
         );
@@ -146,9 +154,19 @@ contract Converter is Owned, UUPSUpgradeable {
     /// @param _inTokenAddress The address of tokenIn
     /// @param _amount The amount of tokenIn
     /// @param _outTokenAddress The address of tokenOut
-    /// @param _minReceiveAmount The minimum amount of tokenOut expected to receive
+    /// @param _minReceiveAmountSwap The minimum amount of tokenOut expected to receive when swapping inToken for outToken
+    /// @param _minInTokenAmountAddLiq The minimum amount of tokenIn expected to add when adding liquidity
+    /// @param _minOutTokenAmountAddLiq The minimum amount of tokenOut expected to add when adding liquidity
     /// @param _recipient The recipient address of LP token
-    function convertAndAddLiquidity(address _inTokenAddress, uint256 _amount, address _outTokenAddress, uint256 _minReceiveAmount, address _recipient) external {
+    function convertAndAddLiquidity(
+        address _inTokenAddress,
+        uint256 _amount,
+        address _outTokenAddress,
+        uint256 _minReceiveAmountSwap,
+        uint256 _minInTokenAmountAddLiq,
+        uint256 _minOutTokenAmountAddLiq,
+        address _recipient
+    ) external {
         IERC20 tokenIn = IERC20(_inTokenAddress);
         IERC20 tokenOut = IERC20(_outTokenAddress);
 
@@ -157,9 +175,17 @@ contract Converter is Owned, UUPSUpgradeable {
 
         // Swap half of tokenIn for tokenOut
         uint256 swapAmount = _amount / 2;
-        uint256 swappedAmount = _swap(swapAmount, _minReceiveAmount, _inTokenAddress, _outTokenAddress, address(this));
+        uint256 swappedAmount = _swap(swapAmount, _minReceiveAmountSwap, _inTokenAddress, _outTokenAddress, address(this));
 
-        _addLiquidity(tokenIn, (_amount - swapAmount), tokenOut, swappedAmount, _recipient);
+        _addLiquidity(
+            tokenIn,
+            (_amount - swapAmount),
+            _minInTokenAmountAddLiq,
+            tokenOut,
+            swappedAmount,
+            _minOutTokenAmountAddLiq,
+            _recipient
+        );
 
         // Return leftover token to msg.sender
         uint256 remainInBalance = tokenIn.balanceOf(address(this));
@@ -168,15 +194,23 @@ contract Converter is Owned, UUPSUpgradeable {
         if (remainOutBalance > 0) tokenOut.safeTransfer(msg.sender, remainOutBalance);
     }
 
-    function _removeLiquidity(IERC20 _lp, IERC20 _token0, IERC20 _token1, uint256 _amount, address _to) internal returns (uint256, uint256) {
-        _lp.safeApprove(address(router), _amount);
+    function _removeLiquidity(
+        IERC20 _lp,
+        IERC20 _token0,
+        IERC20 _token1,
+        uint256 _lpAmount,
+        uint256 _minToken0Amount,
+        uint256 _minToken1Amount,
+        address _to
+    ) internal returns (uint256, uint256) {
+        _lp.safeApprove(address(router), _lpAmount);
 
         (uint256 amountToken0, uint256 amountToken1) = router.removeLiquidity(
             address(_token0),
             address(_token1),
-            _amount,
-            0, // _amountAMin
-            0, // _amountBMin
+            _lpAmount,
+            _minToken0Amount, // _amountAMin
+            _minToken1Amount, // _amountBMin
             _to,
             block.timestamp + 60
         );
@@ -187,10 +221,19 @@ contract Converter is Owned, UUPSUpgradeable {
     /// @notice Remove liquidity and convert returned token0 to token1 or vice versa, and send both to recipient.
     /// @param _lp The LP pair
     /// @param _lpAmount The amount of LP token to remove
+    /// @param _minToken0Amount The minimum amount of token0 received when removing liquidity
+    /// @param _minToken1Amount The minimum amount of token1 received when removing liquidity
     /// @param _token0Percentage The percentage of token0 to preserve: 0~100. For example, 10 means
     /// it will convert token0 and token1 to 10:90 ratio
     /// @param _recipient The recipient address of token0 and token1
-    function removeLiquidityAndConvert(IPancakePair _lp, uint256 _lpAmount, uint256 _token0Percentage, address _recipient) external {
+    function removeLiquidityAndConvert(
+        IPancakePair _lp,
+        uint256 _lpAmount,
+        uint256 _minToken0Amount,
+        uint256 _minToken1Amount,
+        uint256 _token0Percentage,
+        address _recipient
+    ) external {
         require((0 <= _token0Percentage) && (_token0Percentage <= 100), "Invalid token0 percentage");
 
         IERC20 lp = IERC20(address(_lp));
@@ -199,7 +242,15 @@ contract Converter is Owned, UUPSUpgradeable {
 
         // Transfer LP token from msg.sender
         lp.safeTransferFrom(msg.sender, address(this), _lpAmount);
-        (uint256 amountToken0, uint256 amountToken1) = _removeLiquidity(lp, token0, token1, _lpAmount, address(this));
+        (uint256 amountToken0, uint256 amountToken1) = _removeLiquidity(
+            lp,
+            token0,
+            token1,
+            _lpAmount,
+            _minToken0Amount,
+            _minToken1Amount,
+            address(this)
+        );
 
         // Swap specified proportion of token0 for token1
         address tokenIn;

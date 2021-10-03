@@ -12,6 +12,19 @@ import "./BaseSingleTokenStaking.sol";
 contract AutoCompound is BaseSingleTokenStaking {
     using SafeERC20 for IERC20;
 
+    struct BalanceDiff {
+        uint256 balBefore;
+        uint256 balAfter;
+        uint256 balDiff;
+    }
+
+    struct minAmountVars {
+        uint256 rewardToToken0Swap;
+        uint256 tokenInToTokenOutSwap;
+        uint256 tokenInAddLiq;
+        uint256 tokenOutAddLiq;
+    }
+
     /* ========== STATE VARIABLES ========== */
 
     uint256 public lpAmountCompounded;
@@ -74,9 +87,16 @@ contract AutoCompound is BaseSingleTokenStaking {
     /* ========== MUTATIVE FUNCTIONS ========== */
 
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     /// @param amount Amount of stake to withdraw
-    function withdraw(uint256 token0Percentage, uint256 amount) public override nonReentrant updateReward(msg.sender) {
+    function withdraw(
+        uint256 minToken0AmountConverted,
+        uint256 minToken1AmountConverted,
+        uint256 token0Percentage,
+        uint256 amount
+    ) public override nonReentrant updateReward(msg.sender) {
         require(amount > 0, "Cannot withdraw 0");
 
         // Update records:
@@ -89,14 +109,32 @@ contract AutoCompound is BaseSingleTokenStaking {
         stakingRewards.withdraw(amount);
 
         lp.safeApprove(address(converter), amount);
-        converter.removeLiquidityAndConvert(IPancakePair(address(lp)), amount, token0Percentage, msg.sender);
+        converter.removeLiquidityAndConvert(
+            IPancakePair(address(lp)),
+            amount,
+            minToken0AmountConverted,
+            minToken1AmountConverted,
+            token0Percentage,
+            msg.sender
+        );
 
         emit Withdrawn(msg.sender, amount);
     }
 
+    /// @notice Override and intentionally failing the inherited getReward function
+    function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted) public override {
+        revert("This function is not available");
+    }
+
     /// @notice Get the reward out and convert one asset to another. Note that reward is LP token.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function getReward(uint256 token0Percentage) override public updateReward(msg.sender)  {        
+    function getReward(
+        uint256 minToken0AmountConverted,
+        uint256 minToken1AmountConverted,
+        uint256 token0Percentage
+    ) public updateReward(msg.sender)  {        
         uint256 reward = _rewards[msg.sender];
         uint256 totalReward = _rewards[address(this)];
         if (reward > 0) {
@@ -116,63 +154,110 @@ contract AutoCompound is BaseSingleTokenStaking {
             stakingRewards.withdraw(compoundedLPRewardAmount);
 
             lp.safeApprove(address(converter), compoundedLPRewardAmount);
-            converter.removeLiquidityAndConvert(IPancakePair(address(lp)), compoundedLPRewardAmount, token0Percentage, msg.sender);
+            converter.removeLiquidityAndConvert(
+                IPancakePair(address(lp)),
+                compoundedLPRewardAmount,
+                minToken0AmountConverted,
+                minToken1AmountConverted,
+                token0Percentage,
+                msg.sender
+            );
 
             emit RewardPaid(msg.sender, compoundedLPRewardAmount);
         }
     }
 
+    /// @notice Override and intentionally failing the inherited exit function
+    function exit(uint256 minTokenAmountConverted, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) public override {
+        revert("This function is not available");
+    }
+
     /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function exit(uint256 token0Percentage) external override {
-        withdraw(token0Percentage, _balances[msg.sender]);
-        getReward(token0Percentage);
+    function exit(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external {
+        withdraw(minToken0AmountConverted, minToken1AmountConverted, token0Percentage, _balances[msg.sender]);
+        getReward(minToken0AmountConverted, minToken1AmountConverted, token0Percentage);
     }
 
     /// @notice Get all reward out from StakingRewards contract, convert half to other token, provide liquidity and stake
     /// the LP tokens back into StakingRewards contract.
     /// @dev LP tokens staked this way will be tracked in `lpAmountCompounded`.
-    function compound() external nonReentrant updateReward(address(0)) {
+    /// @param minAmounts The minimum amounts of
+    /// 1. token0 expected to receive when swapping reward token for token0
+    /// 2. tokenOut expected to receive when swapping inToken for outToken
+    /// 3. tokenIn expected to add when adding liquidity
+    /// 4. tokenOut expected to add when adding liquidity
+    function compound(
+        minAmountVars memory minAmounts
+    ) external nonReentrant updateReward(address(0)) onlyOwner {
         // Get this contract's reward from StakingRewards
         uint256 rewardsLeft = stakingRewards.earned(address(this));
         if (rewardsLeft > 0) {
             stakingRewards.getReward();
 
-            uint256 lpAmountBefore = lp.balanceOf(address(this));
+            BalanceDiff memory lpAmountDiff;
+            lpAmountDiff.balBefore = lp.balanceOf(address(this));
             IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());
 
             if (address(rewardToken) == address(token0)) {
                 // Convert token0 to LP tokens
                 token0.safeApprove(address(converter), rewardsLeft);
-                converter.convertAndAddLiquidity(address(token0), rewardsLeft, address(token1), 0, address(this));
+                converter.convertAndAddLiquidity(
+                    address(token0),
+                    rewardsLeft,
+                    address(token1),
+                    minAmounts.tokenInToTokenOutSwap,
+                    minAmounts.tokenInAddLiq,
+                    minAmounts.tokenOutAddLiq,
+                    address(this)
+                );
             } else if (address(rewardToken) == address(token1)) {
                 // Convert token1 to LP tokens
                 token1.safeApprove(address(converter), rewardsLeft);
-                converter.convertAndAddLiquidity(address(token1), rewardsLeft, address(token0), 0, address(this));
+                converter.convertAndAddLiquidity(
+                    address(token1),
+                    rewardsLeft,
+                    address(token0),
+                    minAmounts.tokenInToTokenOutSwap,
+                    minAmounts.tokenInAddLiq,
+                    minAmounts.tokenOutAddLiq,
+                    address(this)
+                );
             } else {
+                BalanceDiff memory token0Diff;
                 // If reward token is neither token0 or token1, convert to token0 first
-                uint256 token0BalanceBefore = token0.balanceOf(address(this));
+                token0Diff.balBefore = token0.balanceOf(address(this));
                 // Convert rewards to token0
                 rewardToken.safeApprove(address(converter), rewardsLeft);
-                converter.convert(address(rewardToken), rewardsLeft, 100, address(token0), 0, address(this));
-                uint256 token0BalanceAfter = token0.balanceOf(address(this));
-                uint256 convertedToken0Amount = (token0BalanceAfter - token0BalanceBefore);
+                converter.convert(address(rewardToken), rewardsLeft, 100, address(token0), minAmounts.rewardToToken0Swap, address(this));
+                token0Diff.balAfter = token0.balanceOf(address(this));
+                token0Diff.balDiff = (token0Diff.balAfter - token0Diff.balBefore);
 
                 // Convert converted token0 to LP tokens
-                token0.safeApprove(address(converter), convertedToken0Amount);
-                converter.convertAndAddLiquidity(address(token0), convertedToken0Amount, address(token1), 0, address(this));
+                token0.safeApprove(address(converter), token0Diff.balDiff);
+                converter.convertAndAddLiquidity(
+                    address(token0),
+                    token0Diff.balDiff,
+                    address(token1),
+                    minAmounts.tokenInToTokenOutSwap,
+                    minAmounts.tokenInAddLiq,
+                    minAmounts.tokenOutAddLiq,
+                    address(this)
+                );
             }
 
-            uint256 lpAmountAfter = lp.balanceOf(address(this));
-            uint256 lpAmount = (lpAmountAfter - lpAmountBefore);
+            lpAmountDiff.balAfter = lp.balanceOf(address(this));
+            lpAmountDiff.balDiff = (lpAmountDiff.balAfter - lpAmountDiff.balBefore);
             // Add compounded LP tokens to lpAmountCompounded
-            lpAmountCompounded = lpAmountCompounded + lpAmount;
+            lpAmountCompounded = lpAmountCompounded + lpAmountDiff.balDiff;
 
             // Stake the compounded LP tokens back in
-            lp.safeApprove(address(stakingRewards), lpAmount);
-            stakingRewards.stake(lpAmount);
+            lp.safeApprove(address(stakingRewards), lpAmountDiff.balDiff);
+            stakingRewards.stake(lpAmountDiff.balDiff);
 
-            emit Compounded(lpAmount);
+            emit Compounded(lpAmountDiff.balDiff);
         }
     }
 
