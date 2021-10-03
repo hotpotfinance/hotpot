@@ -1,5 +1,6 @@
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BaseSingleTokenStaking.sol";
@@ -10,13 +11,31 @@ import "./IPancakeRouter.sol";
 /// When main contract calls `exit`, it withdraws stake, get reward and convert reward to LP token
 /// and transfer LP token to main contract.
 contract TempStakeManager is BaseSingleTokenStaking {
+    using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
+
+    struct BalanceDiff {
+        uint256 balBefore;
+        uint256 balAfter;
+        uint256 balDiff;
+    }
+
+    struct RewardRelatedVars {
+        uint256 reward;
+        IERC20 rewardToken;
+        IERC20 otherToken;
+    }
+
+    struct minAmountVars {
+        uint256 rewardToToken0Swap;
+        uint256 tokenInAddLiq;
+        uint256 tokenOutAddLiq;
+    }
 
     /* ========== STATE VARIABLES ========== */
 
     address public mainContract;
-    address[] private _stakerList;
-    uint256 public numStaker;
+    EnumerableSet.AddressSet private _stakerList;
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -45,11 +64,23 @@ contract TempStakeManager is BaseSingleTokenStaking {
 
     /* ========== VIEWS ========== */
 
-    /// @dev Get the reward earned by specified account
-    function getStakerList() public view returns (address[] memory) {
+    function getStakerAt(uint256 index) public view returns (address) {
+        return _stakerList.at(index);
+    }
+
+    function getStakersUpto(uint256 index) public view returns (address[] memory) {
+        address[] memory stakerList = new address[](index);
+        for (uint256 i = 0; i < index; i++) {
+            stakerList[i] = (_stakerList.at(i));
+        }
+        return stakerList;
+    }
+
+    function getAllStakers() public view returns (address[] memory) {
+        uint256 numStaker = _stakerList.length();
         address[] memory stakerList = new address[](numStaker);
         for (uint256 i = 0; i < numStaker; i++) {
-            stakerList[i] = (_stakerList[i]);
+            stakerList[i] = (_stakerList.at(i));
         }
         return stakerList;
     }
@@ -83,8 +114,8 @@ contract TempStakeManager is BaseSingleTokenStaking {
         lp.safeApprove(address(stakingRewards), lpAmount);
         stakingRewards.stake(lpAmount);
 
-        numStaker ++;
-        _stakerList.push(staker);
+        _stakerList.add(staker);
+
         emit Staked(staker, lpAmount);
     }
 
@@ -106,10 +137,14 @@ contract TempStakeManager is BaseSingleTokenStaking {
     /// @notice Withdraw stake from StakingRewards, get the reward out and convert reward to LP token
     /// and transfer LP token to main contract.
     /// @param staker Account that is staking
+    /// @param minAmounts The minimum amounts of
+    /// 1. token0 expected to receive when swapping reward token for token0
+    /// 2. tokenIn expected to add when adding liquidity
+    /// 3. tokenOut expected to add when adding liquidity
     /// @return lpAmount Amount of LP token withdrawn
     /// @return convertedLPAmount Amount of LP token converted from reward
-    function exit(address staker) external onlyMainContract nonReentrant updateReward(staker) returns (uint256 lpAmount, uint256 convertedLPAmount) {
-        lpAmount = _balances[staker];
+    function exit(address staker, minAmountVars memory minAmounts) external onlyMainContract nonReentrant updateReward(staker) returns (uint256, uint256) {
+        uint256 lpAmount = _balances[staker];
 
         // Clean up staker's balance
         _totalSupply = _totalSupply - lpAmount;
@@ -119,25 +154,39 @@ contract TempStakeManager is BaseSingleTokenStaking {
 
         // Get reward and convert to LP token
         stakingRewards.getReward();
-        uint256 reward = _rewards[staker];
-        if (reward > 0) {
+        BalanceDiff memory lpAmountDiff;
+        RewardRelatedVars memory rewardVars;
+        rewardVars.reward = _rewards[staker];
+        if (rewardVars.reward > 0) {
             _rewards[staker] = 0;
 
-            (IERC20 rewardToken, IERC20 otherToken) = isToken0RewardsToken ? (token0, token1) : (token1, token0);
-            uint256 lpAmountBefore = lp.balanceOf(address(this));
+            (rewardVars.rewardToken, rewardVars.otherToken) = isToken0RewardsToken ? (token0, token1) : (token1, token0);
+            lpAmountDiff.balBefore = lp.balanceOf(address(this));
 
             // Convert rewards to LP tokens
-            rewardToken.safeApprove(address(converter), reward);
-            converter.convertAndAddLiquidity(address(rewardToken), reward, address(otherToken), 0, 0, 0, address(this));
+            rewardVars.rewardToken.safeApprove(address(converter), rewardVars.reward);
+            converter.convertAndAddLiquidity(
+                address(rewardVars.rewardToken),
+                rewardVars.reward,
+                address(rewardVars.otherToken),
+                minAmounts.rewardToToken0Swap,
+                minAmounts.tokenInAddLiq,
+                minAmounts.tokenOutAddLiq,
+                address(this)
+            );
 
-            uint256 lpAmountAfter = lp.balanceOf(address(this));
-            convertedLPAmount = (lpAmountAfter - lpAmountBefore);
-            emit ConvertedLP(staker, convertedLPAmount);
+            lpAmountDiff.balAfter = lp.balanceOf(address(this));
+            lpAmountDiff.balDiff = (lpAmountDiff.balAfter - lpAmountDiff.balBefore);
+            emit ConvertedLP(staker, lpAmountDiff.balDiff);
         }
 
+        _stakerList.remove(staker);
+
         // Transfer withdrawn LP amount plus converted LP amount
-        lp.transfer(mainContract, lpAmount + convertedLPAmount);
+        lp.transfer(mainContract, lpAmount + lpAmountDiff.balDiff);
         emit Withdrawn(staker, lpAmount);
+
+        return (lpAmount, lpAmountDiff.balDiff);
     }
 
     /// @notice Withdraw stake from StakingRewards, get the reward out send them to staker
@@ -166,11 +215,8 @@ contract TempStakeManager is BaseSingleTokenStaking {
             IERC20(rewardToken).safeTransfer(staker, reward);
             emit RewardPaid(staker, reward);
         }
-    }
 
-    function clearStakerList() public onlyMainContract {
-        delete _stakerList;
-        numStaker = 0;
+        _stakerList.remove(staker);
     }
 
     /* ========== RESTRICTED FUNCTIONS ========== */
