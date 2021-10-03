@@ -63,14 +63,25 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         uint256 token1AmountBefore = token1.balanceOf(address(this));
 
         // Convert and add liquidity
+        uint256 prevBalance;
+        uint256 postBalance;
+        uint256 actualAmount;
         if (isToken0) {
+            prevBalance = token0.balanceOf(address(this));
             token0.safeTransferFrom(msg.sender, address(this), amount);
-            token0.safeApprove(address(converter), amount);
-            converter.convertAndAddLiquidity(address(token0), amount, address(token1), 0, address(this));
+            postBalance = token0.balanceOf(address(this));
+            actualAmount = postBalance - prevBalance;
+            
+            token0.safeApprove(address(converter), actualAmount);
+            converter.convertAndAddLiquidity(address(token0), actualAmount, address(token1), 0, address(this));
         } else {
+            prevBalance = token1.balanceOf(address(this));
             token1.safeTransferFrom(msg.sender, address(this), amount);
-            token1.safeApprove(address(converter), amount);
-            converter.convertAndAddLiquidity(address(token1), amount, address(token0), 0, address(this));
+            postBalance = token1.balanceOf(address(this));
+            actualAmount = postBalance - prevBalance;
+
+            token1.safeApprove(address(converter), actualAmount);
+            converter.convertAndAddLiquidity(address(token1), actualAmount, address(token0), 0, address(this));
         }
 
         uint256 lpAmountAfter = lp.balanceOf(address(this));
