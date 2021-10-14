@@ -28,12 +28,14 @@ contract AutoCompound is BaseSingleTokenStaking {
     /* ========== STATE VARIABLES ========== */
 
     uint256 public lpAmountCompounded;
+    address public operator;
 
     /* ========== CONSTRUCTOR ========== */
 
     function initialize(
         string memory _name,
         address _owner,
+        address _operator,
         IPancakePair _lp,
         IConverter _converter,
         address _stakingRewards
@@ -43,6 +45,7 @@ contract AutoCompound is BaseSingleTokenStaking {
         super.initializeReentrancyGuard();
 
         name = _name;
+        operator = _operator;
         lp = IERC20(address(_lp));
         token0 = IERC20(_lp.token0());
         token1 = IERC20(_lp.token1());
@@ -191,7 +194,7 @@ contract AutoCompound is BaseSingleTokenStaking {
     /// 4. tokenOut expected to add when adding liquidity
     function compound(
         minAmountVars memory minAmounts
-    ) external nonReentrant updateReward(address(0)) onlyOwner {
+    ) external nonReentrant updateReward(address(0)) onlyOperator {
         // Get this contract's reward from StakingRewards
         uint256 rewardsLeft = stakingRewards.earned(address(this));
         if (rewardsLeft > 0) {
@@ -261,6 +264,10 @@ contract AutoCompound is BaseSingleTokenStaking {
         }
     }
 
+    function updateOperator(address newOperator) external onlyOwner {
+        operator = newOperator;
+    }
+
     /* ========== MODIFIERS ========== */
 
     modifier updateReward(address account) override {
@@ -276,6 +283,11 @@ contract AutoCompound is BaseSingleTokenStaking {
             _rewards[address(this)] = _shareTotal();
             _userRewardPerTokenPaid[address(this)] = rewardPerTokenStored;
         }
+        _;
+    }
+
+    modifier onlyOperator() {
+        require(msg.sender == operator, "Only the contract operator may perform this action");
         _;
     }
 
