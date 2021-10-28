@@ -20,7 +20,8 @@ contract TempStakeManager is BaseSingleTokenStaking {
         uint256 balDiff;
     }
 
-    struct RewardRelatedVars {
+    struct ExitRelatedVars {
+        uint256 lpAmount;
         uint256 reward;
         IERC20 rewardToken;
         IERC20 otherToken;
@@ -28,6 +29,7 @@ contract TempStakeManager is BaseSingleTokenStaking {
 
     struct minAmountVars {
         uint256 rewardToToken0Swap;
+        uint256 tokenInToTokenOutSwap;
         uint256 tokenInAddLiq;
         uint256 tokenOutAddLiq;
     }
@@ -57,7 +59,6 @@ contract TempStakeManager is BaseSingleTokenStaking {
         token1 = IERC20(_lp.token1());
         converter = _converter;
         stakingRewards = _stakingRewards;
-        isToken0RewardsToken = (stakingRewards.rewardsToken() == address(token0));
 
         mainContract = _mainContract;
     }
@@ -139,41 +140,66 @@ contract TempStakeManager is BaseSingleTokenStaking {
     /// @param staker Account that is staking
     /// @param minAmounts The minimum amounts of
     /// 1. token0 expected to receive when swapping reward token for token0
-    /// 2. tokenIn expected to add when adding liquidity
-    /// 3. tokenOut expected to add when adding liquidity
+    /// 2. tokenOut expected to receive when swapping inToken for outToken
+    /// 3. tokenIn expected to add when adding liquidity
+    /// 4. tokenOut expected to add when adding liquidity
     /// @return lpAmount Amount of LP token withdrawn
     /// @return convertedLPAmount Amount of LP token converted from reward
     function exit(address staker, minAmountVars memory minAmounts) external onlyMainContract nonReentrant updateReward(staker) returns (uint256, uint256) {
-        uint256 lpAmount = _balances[staker];
+        ExitRelatedVars memory exitVars;
+        exitVars.lpAmount = _balances[staker];
+        exitVars.reward = _rewards[staker];
 
         // Clean up staker's balance
-        _totalSupply = _totalSupply - lpAmount;
+        _totalSupply = _totalSupply - exitVars.lpAmount;
         _balances[staker] = 0;
         // Withdraw stake
-        stakingRewards.withdraw(lpAmount);
+        stakingRewards.withdraw(exitVars.lpAmount);
 
         // Get reward and convert to LP token
         stakingRewards.getReward();
         BalanceDiff memory lpAmountDiff;
-        RewardRelatedVars memory rewardVars;
-        rewardVars.reward = _rewards[staker];
-        if (rewardVars.reward > 0) {
+        if (exitVars.reward > 0) {
             _rewards[staker] = 0;
 
-            (rewardVars.rewardToken, rewardVars.otherToken) = isToken0RewardsToken ? (token0, token1) : (token1, token0);
+            exitVars.rewardToken = IERC20(stakingRewards.rewardsToken());
             lpAmountDiff.balBefore = lp.balanceOf(address(this));
 
-            // Convert rewards to LP tokens
-            rewardVars.rewardToken.safeApprove(address(converter), rewardVars.reward);
-            converter.convertAndAddLiquidity(
-                address(rewardVars.rewardToken),
-                rewardVars.reward,
-                address(rewardVars.otherToken),
-                minAmounts.rewardToToken0Swap,
-                minAmounts.tokenInAddLiq,
-                minAmounts.tokenOutAddLiq,
-                address(this)
-            );
+            if (exitVars.rewardToken == token0 || exitVars.rewardToken == token1) {
+                // Convert rewards to LP tokens
+                exitVars.otherToken = exitVars.rewardToken == token0 ? token1 : token0;
+                exitVars.rewardToken.safeApprove(address(converter), exitVars.reward);
+                converter.convertAndAddLiquidity(
+                    address(exitVars.rewardToken),
+                    exitVars.reward,
+                    address(exitVars.otherToken),
+                    minAmounts.rewardToToken0Swap,
+                    minAmounts.tokenInAddLiq,
+                    minAmounts.tokenOutAddLiq,
+                    address(this)
+                );
+            } else {
+                BalanceDiff memory token0Diff;
+                // If reward token is neither token0 or token1, convert to token0 first
+                token0Diff.balBefore = token0.balanceOf(address(this));
+                // Convert rewards to token0
+                exitVars.rewardToken.safeApprove(address(converter), exitVars.reward);
+                converter.convert(address(exitVars.rewardToken), exitVars.reward, 100, address(token0), minAmounts.rewardToToken0Swap, address(this));
+                token0Diff.balAfter = token0.balanceOf(address(this));
+                token0Diff.balDiff = (token0Diff.balAfter - token0Diff.balBefore);
+
+                // Convert converted token0 to LP tokens
+                token0.safeApprove(address(converter), token0Diff.balDiff);
+                converter.convertAndAddLiquidity(
+                    address(token0),
+                    token0Diff.balDiff,
+                    address(token1),
+                    minAmounts.tokenInToTokenOutSwap,
+                    minAmounts.tokenInAddLiq,
+                    minAmounts.tokenOutAddLiq,
+                    address(this)
+                );
+            }
 
             lpAmountDiff.balAfter = lp.balanceOf(address(this));
             lpAmountDiff.balDiff = (lpAmountDiff.balAfter - lpAmountDiff.balBefore);
@@ -183,10 +209,10 @@ contract TempStakeManager is BaseSingleTokenStaking {
         _stakerList.remove(staker);
 
         // Transfer withdrawn LP amount plus converted LP amount
-        lp.transfer(mainContract, lpAmount + lpAmountDiff.balDiff);
-        emit Withdrawn(staker, lpAmount);
+        lp.transfer(mainContract, exitVars.lpAmount + lpAmountDiff.balDiff);
+        emit Withdrawn(staker, exitVars.lpAmount);
 
-        return (lpAmount, lpAmountDiff.balDiff);
+        return (exitVars.lpAmount, lpAmountDiff.balDiff);
     }
 
     /// @notice Withdraw stake from StakingRewards, get the reward out send them to staker
@@ -211,8 +237,8 @@ contract TempStakeManager is BaseSingleTokenStaking {
             // Clean up staker's reward
             _rewards[staker] = 0;
             // Transfer reward
-            address rewardToken = isToken0RewardsToken ? address(token0) : address(token1);
-            IERC20(rewardToken).safeTransfer(staker, reward);
+            IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());
+            rewardToken.safeTransfer(staker, reward);
             emit RewardPaid(staker, reward);
         }
 

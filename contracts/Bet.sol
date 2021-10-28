@@ -57,7 +57,6 @@ contract Bet is BaseSingleTokenStaking {
         token1 = IERC20(_lp.token1());
         converter = _converter;
         stakingRewards = _stakingRewards;
-        isToken0RewardsToken = (stakingRewards.rewardsToken() == address(token0));
 
         state = State.Fund;
         operator = _operator;
@@ -108,14 +107,6 @@ contract Bet is BaseSingleTokenStaking {
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
-
-    function _getRewardToken() internal view returns (IERC20 rewardToken) {
-        if (isToken0RewardsToken) {
-            rewardToken = token0;
-        } else {
-            rewardToken = token1;
-        }
-    }
 
     /// @notice Taken token0 or token1 in, convert half to the other token, provide liquidity and stake
     /// the LP tokens into StakingRewards. Leftover token0 or token1 will be returned to msg.sender.
@@ -184,7 +175,8 @@ contract Bet is BaseSingleTokenStaking {
         emit Withdrawn(msg.sender, amount);
     }
 
-    /// @notice Get the reward out and convert one asset to another. Note that reward token is either token0 or token1.
+    /// @notice Get the reward out and see if reward token is one of token0 or token1, if so, convert one asset to another.
+    /// If reward token is neither one of them, transfer reward directly to user.
     /// During Lock state, liquidity provider need to front the rewards user is trying to get, so a portion of rewards
     /// , i.e., penalty,  will be confiscated and paid to liquiditiy provider.
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
@@ -214,15 +206,21 @@ contract Bet is BaseSingleTokenStaking {
             // substract bonusShare from bonus
             bonus = (bonus - bonusShare);
 
-            (IERC20 rewardToken, IERC20 otherToken) = isToken0RewardsToken ? (token0, token1) : (token1, token0);
+            IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());
             // Transfer from liquidityProvider to front the rewards if user withdraw during Lock state
             if (state == State.Lock) {
                 rewardToken.safeTransferFrom(liquidityProvider, address(this), bonusShare);
             }
 
-            rewardToken.safeApprove(address(converter), bonusShare);
-            uint256 convertPercentage = isToken0RewardsToken ? 100 - token0Percentage : token0Percentage;
-            converter.convert(address(rewardToken), bonusShare, convertPercentage, address(otherToken), minTokenAmountConverted, msg.sender);
+            if (rewardToken == token0 || rewardToken == token1) {
+                IERC20 otherToken = rewardToken == token0 ? token1 : token0;
+                rewardToken.safeApprove(address(converter), bonusShare);
+                uint256 convertPercentage = isToken0RewardsToken ? 100 - token0Percentage : token0Percentage;
+                converter.convert(address(rewardToken), bonusShare, convertPercentage, address(otherToken), minTokenAmountConverted, msg.sender);
+            } else {
+                rewardToken.safeTransfer(msg.sender, bonusShare);
+            }
+
             emit RewardPaid(msg.sender, bonusShare);
         }
     }
@@ -277,7 +275,7 @@ contract Bet is BaseSingleTokenStaking {
             _rewards[address(this)] = (_rewards[address(this)] - lpRewardsShare);
             bonus = (bonus - lpBonusShare);
 
-            IERC20 rewardToken = _getRewardToken();
+            IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());
             rewardToken.safeTransfer(liquidityProvider, lpBonusShare);
 
             emit RewardPaid(liquidityProvider, lpBonusShare);
@@ -293,7 +291,7 @@ contract Bet is BaseSingleTokenStaking {
             stakingRewards.getReward();
         }
         // Transfer all rewards to operator
-        IERC20 rewardToken = _getRewardToken();
+        IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());
         uint256 allRewards = rewardToken.balanceOf(address(this));
         rewardToken.safeTransfer(operator, allRewards);
 
@@ -305,7 +303,7 @@ contract Bet is BaseSingleTokenStaking {
     /// @notice Opreator returns reward.
     function serve(uint256 amount) external nonReentrant locked onlyOperator {
         // Transfer reward from operator
-        IERC20 rewardToken = _getRewardToken();
+        IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());
         rewardToken.safeTransferFrom(operator, address(this), amount);
 
         bonus = amount;
