@@ -32,6 +32,7 @@ contract Bet is BaseSingleTokenStaking {
     IPancakeRouter public router;
     ITempStakeManager public tempStakeManager;
     uint256 public penaltyPercentage;
+    uint256 public rewardBeforeCook;
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -175,17 +176,23 @@ contract Bet is BaseSingleTokenStaking {
         emit Withdrawn(msg.sender, amount);
     }
 
+    /// @notice Override and intentionally failing the inherited getReward function
+    function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted) public override {
+        revert("This function is not available");
+    }
+
     /// @notice Get the reward out and see if reward token is one of token0 or token1, if so, convert one asset to another.
     /// If reward token is neither one of them, transfer reward directly to user.
     /// During Lock state, liquidity provider need to front the rewards user is trying to get, so a portion of rewards
     /// , i.e., penalty,  will be confiscated and paid to liquiditiy provider.
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     /// @param minTokenAmountConverted The minimum amount of token0 or token1 received when converting reward token to either one of them
-    function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted) override public updateReward(msg.sender) {        
+    /// @param getStakingRewardsReward True indicates that user also gets reward out from StakingRewards
+    function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted, bool getStakingRewardsReward) public updateReward(msg.sender) {        
         uint256 reward = _rewards[msg.sender];
         uint256 totalReward = _rewards[address(this)];
         if (reward > 0) {
-            // If user withdraw during Lock state, he only gets part of reward
+            // If user getReward during Lock state, he only gets part of reward
             uint256 actualReward;
             if (state == State.Fund) {
                 actualReward = reward;
@@ -207,9 +214,22 @@ contract Bet is BaseSingleTokenStaking {
             bonus = (bonus - bonusShare);
 
             IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());
-            // Transfer from liquidityProvider to front the rewards if user withdraw during Lock state
+            // If user getReward during Lock state, transfer from liquidityProvider to front the rewards
             if (state == State.Lock) {
                 rewardToken.safeTransferFrom(liquidityProvider, address(this), bonusShare);
+            }
+
+            // If user getReward during Fund state, 
+            if (state == State.Fund && getStakingRewardsReward) {
+                uint256 rewardsLeft = stakingRewards.earned(address(this));
+                if (rewardsLeft > 0) {
+                    rewardBeforeCook += rewardsLeft;
+                    stakingRewards.getReward();
+                    uint256 stakingRewardsReward = rewardBeforeCook * actualReward / totalReward;
+                    bonusShare += stakingRewardsReward;
+                    rewardBeforeCook -= stakingRewardsReward;
+                    emit StakingRewardsReward(stakingRewardsReward);
+                }
             }
 
             if (rewardToken == token0 || rewardToken == token1) {
@@ -232,7 +252,7 @@ contract Bet is BaseSingleTokenStaking {
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     function exit(uint256 minTokenAmountConverted, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external override {
         withdraw(minToken0AmountConverted, minToken1AmountConverted, token0Percentage, _balances[msg.sender]);
-        getReward(token0Percentage, minTokenAmountConverted);
+        getReward(token0Percentage, minTokenAmountConverted, true);
         tempStakeManager.abort(msg.sender);
     }
 
@@ -295,6 +315,7 @@ contract Bet is BaseSingleTokenStaking {
         uint256 allRewards = rewardToken.balanceOf(address(this));
         rewardToken.safeTransfer(operator, allRewards);
 
+        rewardBeforeCook = 0;
         state = State.Lock;
 
         emit Cook(allRewards);
@@ -373,6 +394,7 @@ contract Bet is BaseSingleTokenStaking {
 
     /* ========== EVENTS ========== */
 
+    event StakingRewardsReward(uint256 amount);
     event RewardPaid(address indexed user, uint256 reward);
     event Cook(uint256 rewardAmount);
     event Serve(uint256 rewardAmount);
