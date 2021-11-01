@@ -107,6 +107,31 @@ contract Bet is BaseSingleTokenStaking {
         return earnedBonusAmount;
     }
 
+    /// @notice Get the locked reward amount earned by specified account.
+    /// "Locked" means this is not the bonus for user to claim. This is the reward used to cook.
+    /// Only the reward served is available for user to claim.
+    /// This function is used to preview the user's reward that will be used to cook. 
+    /// However, this locked amount can be claim in one exeption where user getReward during Fund state.
+    /// See more detail in `getReward`
+    function earnedLocked(address account) public view returns (uint256) {
+        uint256 rewardsLeft = stakingRewards.earned(address(this));
+        uint256 totalLockedReward = rewardBeforeCook + rewardsLeft;
+
+        uint256 userEarnedLockedReward;
+        uint256 rewardsShare;
+        uint256 totalShare;
+        if (account == address(this)){
+            rewardsShare = _shareTotal();
+        } else {
+            rewardsShare = _share(account);
+        }
+        if (rewardsShare > 0) {
+            totalShare = _shareTotal();
+            userEarnedLockedReward = totalLockedReward * _share(account) / _shareTotal();
+        }
+        return userEarnedLockedReward;
+    }
+
     /* ========== MUTATIVE FUNCTIONS ========== */
 
     /// @notice Taken token0 or token1 in, convert half to the other token, provide liquidity and stake
