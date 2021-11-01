@@ -134,6 +134,20 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         emit Staked(msg.sender, lpAmount);
     }
 
+    /// @notice Take LP tokens and stake into MasterChef contract.
+    /// @param lpAmount Amount of LP tokens to stake
+    function stakeWithLP(uint256 lpAmount) public virtual nonReentrant notPaused updateReward(msg.sender) {
+        lp.safeTransferFrom(msg.sender, address(this), lpAmount);
+        lp.safeApprove(address(masterChef), lpAmount);
+        masterChef.deposit(pid, lpAmount);
+
+        // Top up msg.sender's balance
+        uint256 accCakePerShare = _getAccCakePerShare();
+        userInfo[address(this)].amount = userInfo[address(this)].amount + lpAmount;
+        userInfo[msg.sender].amount = userInfo[msg.sender].amount + lpAmount;
+        emit Staked(msg.sender, lpAmount);
+    }
+
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
     function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
 

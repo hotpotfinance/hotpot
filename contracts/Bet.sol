@@ -149,6 +149,24 @@ contract Bet is BaseSingleTokenStaking {
         }
     }
 
+    /// @notice Take LP tokens and stake into StakingRewards contract.
+    /// @param lpAmount Amount of LP tokens to stake
+    function stakeWithLP(uint256 lpAmount) public override nonReentrant notPaused updateReward(msg.sender) {
+        if (state == State.Fund) {
+            lp.safeTransferFrom(msg.sender, address(this), lpAmount);
+            lp.safeApprove(address(stakingRewards), lpAmount);
+            stakingRewards.stake(lpAmount);
+            _totalSupply = _totalSupply + lpAmount;
+            _balances[msg.sender] = _balances[msg.sender] + lpAmount;
+            emit Staked(msg.sender, lpAmount);
+        } else {
+            // If it's in Lock state, transfer LP to TempStakeManager
+            lp.transfer(address(tempStakeManager), lpAmount);
+            tempStakeManager.stake(msg.sender, lpAmount);
+        }
+
+    }
+
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
     /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
     /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
