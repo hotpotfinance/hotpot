@@ -151,6 +151,25 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
     function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
 
+    /// @notice Withdraw LP tokens from StakingRewards contract and return to user.
+    /// @param lpAmount Amount of LP tokens to withdraw
+    function withdrawWithLP(uint256 lpAmount) public virtual nonReentrant notPaused updateReward(msg.sender) {
+        require(lpAmount > 0, "Cannot withdraw 0");
+
+        // Update records:
+        // substract withdrawing LP amount from total LP amount staked
+        _totalSupply = (_totalSupply - lpAmount);
+        // substract withdrawing LP amount from user's balance
+        _balances[msg.sender] = (_balances[msg.sender] - lpAmount);
+
+        // Withdraw
+        stakingRewards.withdraw(lpAmount);
+
+        lp.safeTransfer(msg.sender, lpAmount);
+
+        emit Withdrawn(msg.sender, lpAmount);
+    }
+
     /// @notice Get the reward out and convert one asset to another.
     function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted) public virtual updateReward(msg.sender) {}
 
