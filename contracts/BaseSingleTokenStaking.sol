@@ -176,6 +176,9 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
     function exit(uint256 minTokenAmountConverted, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external virtual {}
 
+    /// @notice Withdraw LP tokens from StakingRewards and return to user. Get the reward out and convert one asset to another.
+    function exitWithLP(uint256 token0Percentage, uint256 minTokenAmountConverted) external virtual {}
+
     /* ========== RESTRICTED FUNCTIONS ========== */
 
     function recoverERC20(address tokenAddress, uint256 tokenAmount) external onlyOwner {

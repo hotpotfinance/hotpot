@@ -257,6 +257,15 @@ contract Bet is BaseSingleTokenStaking {
         tempStakeManager.abort(msg.sender);
     }
 
+    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
+    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
+    /// @param minTokenAmountConverted The minimum amount of token0 or token1 received when converting reward token to either one of them
+    function exitWithLP(uint256 token0Percentage, uint256 minTokenAmountConverted) external override {
+        withdrawWithLP(_balances[msg.sender]);
+        getReward(token0Percentage, minTokenAmountConverted, true);
+        tempStakeManager.abort(msg.sender);
+    }
+
     /* ========== RESTRICTED FUNCTIONS ========== */
 
     /// @notice Transfer users' stake from TempStakeManager contract back to this contract.

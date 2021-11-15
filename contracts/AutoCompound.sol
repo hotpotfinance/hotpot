@@ -181,6 +181,20 @@ contract AutoCompound is BaseSingleTokenStaking {
         getReward(minToken0AmountConverted, minToken1AmountConverted, token0Percentage);
     }
 
+    /// @notice Override and intentionally failing the inherited exit function
+    function exitWithLP(uint256 token0Percentage, uint256 minTokenAmountConverted) external override {
+        revert("This function is not available");
+    }
+
+    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
+    function exitWithLP(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external {
+        withdrawWithLP(_balances[msg.sender]);
+        getReward(minToken0AmountConverted, minToken1AmountConverted, token0Percentage);
+    }
+
     /// @notice Get all reward out from StakingRewards contract, convert half to other token, provide liquidity and stake
     /// the LP tokens back into StakingRewards contract.
     /// @dev LP tokens staked this way will be tracked in `lpAmountCompounded`.
