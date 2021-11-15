@@ -152,8 +152,9 @@ contract Bet is BaseSingleTokenStaking {
     /// @notice Take LP tokens and stake into StakingRewards contract.
     /// @param lpAmount Amount of LP tokens to stake
     function stakeWithLP(uint256 lpAmount) public override nonReentrant notPaused updateReward(msg.sender) {
+        lp.safeTransferFrom(msg.sender, address(this), lpAmount);
+
         if (state == State.Fund) {
-            lp.safeTransferFrom(msg.sender, address(this), lpAmount);
             lp.safeApprove(address(stakingRewards), lpAmount);
             stakingRewards.stake(lpAmount);
             _totalSupply = _totalSupply + lpAmount;
