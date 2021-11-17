@@ -33,6 +33,8 @@ contract Bet is BaseSingleTokenStaking {
     ITempStakeManager public tempStakeManager;
     uint256 public penaltyPercentage;
     uint256 public rewardBeforeCook;
+    uint256 public period;
+    mapping(address => uint256) public stakerLastGetRewardPeriod;
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -59,6 +61,7 @@ contract Bet is BaseSingleTokenStaking {
         converter = _converter;
         stakingRewards = _stakingRewards;
 
+        period = 1;
         state = State.Fund;
         operator = _operator;
         liquidityProvider = _liquidityProvider;
@@ -90,6 +93,9 @@ contract Bet is BaseSingleTokenStaking {
 
     /// @notice Get the reward amount earned by specified account.
     function earned(address account) public override view returns (uint256) {
+        // Can not getReward if already did in this period
+        if (stakerLastGetRewardPeriod[msg.sender] >= period) return 0;
+
         uint256 rewardsShare;
         if (account == address(this)){
             rewardsShare = _shareTotal();
@@ -232,7 +238,9 @@ contract Bet is BaseSingleTokenStaking {
     /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
     /// @param minTokenAmountConverted The minimum amount of token0 or token1 received when converting reward token to either one of them
     /// @param getStakingRewardsReward True indicates that user also gets reward out from StakingRewards
-    function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted, bool getStakingRewardsReward) public updateReward(msg.sender) {        
+    function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted, bool getStakingRewardsReward) public updateReward(msg.sender) { 
+        require(stakerLastGetRewardPeriod[msg.sender] < period, "Already getReward in this period"); 
+      
         uint256 reward = _rewards[msg.sender];
         uint256 totalReward = _rewards[address(this)];
         if (reward > 0) {
@@ -285,6 +293,7 @@ contract Bet is BaseSingleTokenStaking {
                 rewardToken.safeTransfer(msg.sender, bonusShare);
             }
 
+            stakerLastGetRewardPeriod[msg.sender] = period;
             emit RewardPaid(msg.sender, bonusShare);
         }
     }
@@ -382,6 +391,7 @@ contract Bet is BaseSingleTokenStaking {
 
         bonus = amount;
         state = State.Fund;
+        period += 1;
 
         emit Serve(amount);
     }
