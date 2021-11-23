@@ -94,7 +94,7 @@ contract Bet is BaseSingleTokenStaking {
     /// @notice Get the reward amount earned by specified account.
     function earned(address account) public override view returns (uint256) {
         // Can not getReward if already did in this period
-        if (stakerLastGetRewardPeriod[msg.sender] >= period) return 0;
+        if (stakerLastGetRewardPeriod[account] >= period) return 0;
 
         uint256 rewardsShare;
         if (account == address(this)){
