@@ -155,7 +155,6 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
         masterChef.deposit(pid, lpAmount);
 
         // Top up msg.sender's balance
-        uint256 accCakePerShare = _getAccCakePerShare();
         userInfo[address(this)].amount = userInfo[address(this)].amount + lpAmount;
         userInfo[msg.sender].amount = userInfo[msg.sender].amount + lpAmount;
         emit Staked(msg.sender, lpAmount);
@@ -169,7 +168,6 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
         masterChef.deposit(pid, lpAmount);
 
         // Top up msg.sender's balance
-        uint256 accCakePerShare = _getAccCakePerShare();
         userInfo[address(this)].amount = userInfo[address(this)].amount + lpAmount;
         userInfo[msg.sender].amount = userInfo[msg.sender].amount + lpAmount;
         emit Staked(msg.sender, lpAmount);
