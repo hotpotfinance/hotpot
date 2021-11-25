@@ -398,6 +398,8 @@ contract Bet is BaseSingleTokenStaking {
 
     function updateOperator(address newOperator) external onlyOwner {
         operator = newOperator;
+
+        emit UpdateOperator(newOperator);
     }
 
     function updateLiquidityProvider(address newLiquidityProvider) external onlyOwner {
@@ -461,4 +463,5 @@ contract Bet is BaseSingleTokenStaking {
     event RewardPaid(address indexed user, uint256 reward);
     event Cook(uint256 rewardAmount);
     event Serve(uint256 rewardAmount);
+    event UpdateOperator(address newOperator);
 }

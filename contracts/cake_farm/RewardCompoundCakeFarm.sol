@@ -348,6 +348,8 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
 
     function updateOperator(address newOperator) external onlyOwner {
         operator = newOperator;
+
+        emit UpdateOperator(newOperator);
     }
 
     /* ========== MODIFIERS ========== */
@@ -384,4 +386,5 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
     event StakedToStakingReward(uint256 stakeAmount);
     event Compounded(uint256 lpAmount);
     event RewardPaid(address indexed user, uint256 rewardLPAmount);
+    event UpdateOperator(address newOperator);
 }

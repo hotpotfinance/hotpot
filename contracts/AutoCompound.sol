@@ -280,6 +280,8 @@ contract AutoCompound is BaseSingleTokenStaking {
 
     function updateOperator(address newOperator) external onlyOwner {
         operator = newOperator;
+
+        emit UpdateOperator(newOperator);
     }
 
     /* ========== MODIFIERS ========== */
@@ -309,4 +311,5 @@ contract AutoCompound is BaseSingleTokenStaking {
 
     event Compounded(uint256 lpAmount);
     event RewardPaid(address indexed user, uint256 rewardLPAmount);
+    event UpdateOperator(address newOperator);
 }
