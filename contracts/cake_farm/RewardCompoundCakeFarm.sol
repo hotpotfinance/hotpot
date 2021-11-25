@@ -141,7 +141,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         uint256 amount
     ) public override nonReentrant updateReward(msg.sender) {
         require(amount > 0, "Cannot withdraw 0");
-        uint256 totalAmount = userInfo[address(this)].amount;
+        uint256 userTotalAmount = userInfo[msg.sender].amount;
 
         // Update records:
         // substract withdrawing LP amount from total LP amount staked
@@ -163,7 +163,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         );
 
         // Withdraw from StakingRewards
-        uint256 amountToWithdrawFromStakingRewards = _withdrawFromStakingRewards(amount, totalAmount);
+        uint256 amountToWithdrawFromStakingRewards = _withdrawFromStakingRewards(amount, userTotalAmount);
 
         emit Withdrawn(msg.sender, amount, amountToWithdrawFromStakingRewards);
     }
@@ -172,7 +172,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
     /// @param lpAmount Amount of LP tokens to withdraw
     function withdrawWithLP(uint256 lpAmount) public override nonReentrant notPaused updateReward(msg.sender) {
         require(lpAmount > 0, "Cannot withdraw 0");
-        uint256 totalAmount = userInfo[address(this)].amount;
+        uint256 userTotalAmount = userInfo[msg.sender].amount;
 
         // Update records:
         // substract withdrawing LP amount from total LP amount staked
@@ -185,7 +185,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         lp.safeTransfer(msg.sender, lpAmount);
 
         // Withdraw from StakingRewards
-        uint256 amountToWithdrawFromStakingRewards = _withdrawFromStakingRewards(lpAmount, totalAmount);
+        uint256 amountToWithdrawFromStakingRewards = _withdrawFromStakingRewards(lpAmount, userTotalAmount);
 
         emit Withdrawn(msg.sender, lpAmount, amountToWithdrawFromStakingRewards);
     }
