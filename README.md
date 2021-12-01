@@ -16,3 +16,23 @@ Seaweed soup has a stable, circulating yield for DeFi users. All transactions ar
 Spicy Soup brings about higher yield and volatility. It has the locking period that trades potential high-yield on-chain derivatives and options. During the funding period, users will get profits earned automatically through on-chain trading. When the soup is locked up for cooking, your assets will be traded on cross-chain.
 
 In the long-run, Hotpot will develop to a full-fledged product which is applicable in multichain and provide distinguished institutional solutions, hedging & prediction derivatives, and so on. Furthermore, during our fund-raising period, users are eligible to vote and determine what works best for Spicy Soup’s next moves/ portfolio(s), the strategies of which include perpetual future contracts, NFT combos, options, structured products as our fundamental investment targets, providing users with better diversity and variety. Interestingly, by connecting Hotpot Finance to various hotpot merchants, Hotpot promises to launch a fresh initiative in bringing the Hotpot flavors to life. Users can enjoy the hotpot with friends and family while taking use of exclusive NFT ingredients and other cross-industry alliance projects.
+
+### Community and resouces
+
+Discord
+https://twitter.com/hotpot_finance
+
+Twitter
+https://discord.gg/bRUNv5UQxr
+
+Telegram
+https://t.me/hotpot_finacne_announcement
+
+Medium
+https://medium.com/@hotpot.finance
+
+Gitbook
+https://hotpot-finance-1.gitbook.io/hotpot.finance/
+
+Docsend
+https://docsend.com/view/d6jiedtsw6x6nepi
