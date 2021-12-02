@@ -17,7 +17,7 @@ Spicy Soup brings about higher yield and volatility. It has the locking period t
 
 In the long-run, Hotpot will develop to a full-fledged product which is applicable in multichain and provide distinguished institutional solutions, hedging & prediction derivatives, and so on. Furthermore, during our fund-raising period, users are eligible to vote and determine what works best for Spicy Soup’s next moves/ portfolio(s), the strategies of which include perpetual future contracts, NFT combos, options, structured products as our fundamental investment targets, providing users with better diversity and variety. Interestingly, by connecting Hotpot Finance to various hotpot merchants, Hotpot promises to launch a fresh initiative in bringing the Hotpot flavors to life. Users can enjoy the hotpot with friends and family while taking use of exclusive NFT ingredients and other cross-industry alliance projects.
 
-### Community and resouces
+### Community
 
 Discord
 https://twitter.com/hotpot_finance
