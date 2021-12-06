@@ -3,37 +3,43 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
-import "./upgrade/Pausable.sol";
-import "./upgrade/ReentrancyGuard.sol";
-import "./IStakingRewards.sol";
-import "./IConverter.sol";
+import "../upgrade/Pausable.sol";
+import "../upgrade/ReentrancyGuard.sol";
+import "./IMasterChef.sol";
+import "../IConverter.sol";
 
 // Modified from https://docs.synthetix.io/contracts/source/contracts/stakingrewards
-/// @title A wrapper contract over StakingRewards contract that allows single asset in/out.
+// and adjusted based on https://github.com/pancakeswap/pancake-farm/blob/master/contracts/MasterChef.sol
+/// @title A wrapper contract over MasterChef contract that allows single asset in/out.
 /// 1. User provide token0 or token1
 /// 2. contract converts half to the other token and provide liquidity
-/// 3. stake into underlying StakingRewards contract
+/// 3. stake into underlying MasterChef contract
 /// @notice Asset tokens are token0 and token1. Staking token is the LP token of token0/token1.
-abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgradeable {
+abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
 
     /* ========== STATE VARIABLES ========== */
 
     string public name;
-    IConverter public converter;
+    uint256 public pid; //Pool ID in MasterChef
+    address public BCNT;
+    IERC20 public cake;
     IERC20 public lp;
     IERC20 public token0;
     IERC20 public token1;
+    IConverter public converter;
+    IMasterChef public masterChef;
 
-    IStakingRewards public stakingRewards;
-    bool public isToken0RewardsToken;
 
-    /// @dev Piggyback on StakingRewards' reward accounting
-    mapping(address => uint256) internal _userRewardPerTokenPaid;
-    mapping(address => uint256) internal _rewards;
+    /// @dev Piggyback on MasterChef' reward accounting
+    // Info of each user.
+    struct UserInfo {
+        uint256 amount;     // How many LP tokens the user has provided.
+        uint256 rewardDebt; // Reward debt.
+        uint256 accruedReward;
+    }
 
-    uint256 internal _totalSupply;
-    mapping(address => uint256) internal _balances;
+    mapping(address => UserInfo) public userInfo;
 
     /* ========== VIEWS ========== */
 
@@ -44,15 +50,24 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     }
 
     function totalSupply() external view returns (uint256) {
-        return _totalSupply;
+        return userInfo[address(this)].amount;
     }
 
     function balanceOf(address account) external view returns (uint256) {
-        return _balances[account];
+        return userInfo[account].amount;
+    }
+
+    function _debtOf(address account) external view returns (uint256) {
+        return userInfo[account].rewardDebt;
     }
 
     /// @notice Get the reward earned by specified account.
     function earned(address account) public virtual view returns (uint256) {}
+
+    function _getAccCakePerShare() public view returns (uint256) {
+        (, , , uint256 accCakePerShare) = masterChef.poolInfo(pid);
+        return accCakePerShare;
+    }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
 
@@ -69,12 +84,19 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         uint256 token1AmountBefore = token1.balanceOf(address(this));
 
         // Convert and add liquidity
+        uint256 prevBalance;
+        uint256 postBalance;
+        uint256 actualAmount;
         if (isToken0) {
+            prevBalance = token0.balanceOf(address(this));
             token0.safeTransferFrom(msg.sender, address(this), amount);
-            token0.safeApprove(address(converter), amount);
+            postBalance = token0.balanceOf(address(this));
+            actualAmount = postBalance - prevBalance;
+
+            token0.safeApprove(address(converter), actualAmount);
             converter.convertAndAddLiquidity(
                 address(token0),
-                amount,
+                actualAmount,
                 address(token1),
                 minReceivedTokenAmountSwap,
                 minToken0AmountAddLiq,
@@ -82,11 +104,15 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
                 address(this)
             );
         } else {
+            prevBalance = token1.balanceOf(address(this));
             token1.safeTransferFrom(msg.sender, address(this), amount);
-            token1.safeApprove(address(converter), amount);
+            postBalance = token1.balanceOf(address(this));
+            actualAmount = postBalance - prevBalance;
+
+            token1.safeApprove(address(converter), actualAmount);
             converter.convertAndAddLiquidity(
                 address(token1),
-                amount,
+                actualAmount,
                 address(token0),
                 minReceivedTokenAmountSwap,
                 minToken0AmountAddLiq,
@@ -111,7 +137,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     }
 
     /// @notice Taken token0 or token1 in, convert half to the other token, provide liquidity and stake
-    /// the LP tokens into StakingRewards contract. Leftover token0 or token1 will be returned to msg.sender.
+    /// the LP tokens into MasterChef contract. Leftover token0 or token1 will be returned to msg.sender.
     /// @param isToken0 Determine if token0 is the token msg.sender going to use for staking, token1 otherwise
     /// @param amount Amount of token0 or token1 to stake
     /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
@@ -125,58 +151,43 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         uint256 minToken1AmountAddLiq
     ) public virtual nonReentrant notPaused updateReward(msg.sender) {
         uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
-        lp.safeApprove(address(stakingRewards), lpAmount);
-        stakingRewards.stake(lpAmount);
+        lp.safeApprove(address(masterChef), lpAmount);
+        masterChef.deposit(pid, lpAmount);
 
         // Top up msg.sender's balance
-        _totalSupply = _totalSupply + lpAmount;
-        _balances[msg.sender] = _balances[msg.sender] + lpAmount;
+        userInfo[address(this)].amount = userInfo[address(this)].amount + lpAmount;
+        userInfo[msg.sender].amount = userInfo[msg.sender].amount + lpAmount;
         emit Staked(msg.sender, lpAmount);
     }
 
-    /// @notice Take LP tokens and stake into StakingRewards contract.
+    /// @notice Take LP tokens and stake into MasterChef contract.
     /// @param lpAmount Amount of LP tokens to stake
-    function stakeWithLP(uint256 lpAmount) public virtual nonReentrant notPaused updateReward(msg.sender) {
+    function stakeWithLP(uint256 lpAmount) public nonReentrant notPaused updateReward(msg.sender) {
         lp.safeTransferFrom(msg.sender, address(this), lpAmount);
-        lp.safeApprove(address(stakingRewards), lpAmount);
-        stakingRewards.stake(lpAmount);
+        lp.safeApprove(address(masterChef), lpAmount);
+        masterChef.deposit(pid, lpAmount);
 
         // Top up msg.sender's balance
-        _totalSupply = _totalSupply + lpAmount;
-        _balances[msg.sender] = _balances[msg.sender] + lpAmount;
+        userInfo[address(this)].amount = userInfo[address(this)].amount + lpAmount;
+        userInfo[msg.sender].amount = userInfo[msg.sender].amount + lpAmount;
         emit Staked(msg.sender, lpAmount);
     }
 
-    /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
-    function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
+    /// @notice Withdraw stake from MasterChef, remove liquidity and convert to BCNT
+    function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
 
-    /// @notice Withdraw LP tokens from StakingRewards contract and return to user.
+    /// @notice Withdraw LP tokens from MasterChef and return to user.
     /// @param lpAmount Amount of LP tokens to withdraw
-    function withdrawWithLP(uint256 lpAmount) public virtual nonReentrant notPaused updateReward(msg.sender) {
-        require(lpAmount > 0, "Cannot withdraw 0");
-
-        // Update records:
-        // substract withdrawing LP amount from total LP amount staked
-        _totalSupply = (_totalSupply - lpAmount);
-        // substract withdrawing LP amount from user's balance
-        _balances[msg.sender] = (_balances[msg.sender] - lpAmount);
-
-        // Withdraw
-        stakingRewards.withdraw(lpAmount);
-
-        lp.safeTransfer(msg.sender, lpAmount);
-
-        emit Withdrawn(msg.sender, lpAmount);
-    }
+    function withdrawWithLP(uint256 lpAmount) public virtual nonReentrant notPaused updateReward(msg.sender) {}
 
     /// @notice Get the reward out and convert one asset to another.
-    function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted) public virtual updateReward(msg.sender) {}
+    function getReward(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted) public virtual nonReentrant updateReward(msg.sender) {}
 
-    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
-    function exit(uint256 minTokenAmountConverted, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external virtual {}
+    /// @notice Withdraw all stake from MasterChef, remove liquidity and convert to BCNT. Get the reward out and convert one asset to another.
+    function exit(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted, uint256 token0Percentage) external virtual {}
 
-    /// @notice Withdraw LP tokens from StakingRewards and return to user. Get the reward out and convert one asset to another.
-    function exitWithLP(uint256 token0Percentage, uint256 minTokenAmountConverted) external virtual {}
+    /// @notice Withdraw LP tokens from MasterChef and return to user. Get the reward out and convert one asset to another.
+    function exitWithLP(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted) external virtual {}
 
     /* ========== RESTRICTED FUNCTIONS ========== */
 
@@ -191,17 +202,28 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     /* ========== MODIFIERS ========== */
 
     modifier updateReward(address account) virtual {
-        uint256 rewardPerTokenStored = stakingRewards.rewardPerToken();
+        masterChef.updatePool(pid);
+        uint256 accCakePerShare = _getAccCakePerShare();
+        UserInfo storage user = userInfo[account];
+        UserInfo storage total = userInfo[address(this)];
+
         if (account != address(0)) {
-            _rewards[account] = earned(account);
-            _userRewardPerTokenPaid[account] = rewardPerTokenStored;
+            uint256 userPending = user.amount * accCakePerShare / 1e12 - user.rewardDebt;
+            user.accruedReward = user.accruedReward + userPending;
+            uint256 totalPending = total.amount * accCakePerShare / 1e12 - total.rewardDebt;
+            total.accruedReward = total.accruedReward + totalPending;
         }
+
         _;
+
+        if (account != address(0)) {
+            user.rewardDebt = user.amount * accCakePerShare / 1e12;
+            total.rewardDebt = total.amount * accCakePerShare / 1e12;
+        }
     }
 
     /* ========== EVENTS ========== */
 
     event Staked(address indexed user, uint256 amount);
-    event Withdrawn(address indexed user, uint256 amount);
     event Recovered(address token, uint256 amount);
 }

@@ -28,12 +28,14 @@ contract AutoCompound is BaseSingleTokenStaking {
     /* ========== STATE VARIABLES ========== */
 
     uint256 public lpAmountCompounded;
+    address public operator;
 
     /* ========== CONSTRUCTOR ========== */
 
     function initialize(
         string memory _name,
         address _owner,
+        address _operator,
         IPancakePair _lp,
         IConverter _converter,
         address _stakingRewards
@@ -43,6 +45,7 @@ contract AutoCompound is BaseSingleTokenStaking {
         super.initializeReentrancyGuard();
 
         name = _name;
+        operator = _operator;
         lp = IERC20(address(_lp));
         token0 = IERC20(_lp.token0());
         token1 = IERC20(_lp.token1());
@@ -181,6 +184,20 @@ contract AutoCompound is BaseSingleTokenStaking {
         getReward(minToken0AmountConverted, minToken1AmountConverted, token0Percentage);
     }
 
+    /// @notice Override and intentionally failing the inherited exit function
+    function exitWithLP(uint256 token0Percentage, uint256 minTokenAmountConverted) external override {
+        revert("This function is not available");
+    }
+
+    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
+    function exitWithLP(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external {
+        withdrawWithLP(_balances[msg.sender]);
+        getReward(minToken0AmountConverted, minToken1AmountConverted, token0Percentage);
+    }
+
     /// @notice Get all reward out from StakingRewards contract, convert half to other token, provide liquidity and stake
     /// the LP tokens back into StakingRewards contract.
     /// @dev LP tokens staked this way will be tracked in `lpAmountCompounded`.
@@ -191,7 +208,7 @@ contract AutoCompound is BaseSingleTokenStaking {
     /// 4. tokenOut expected to add when adding liquidity
     function compound(
         minAmountVars memory minAmounts
-    ) external nonReentrant updateReward(address(0)) onlyOwner {
+    ) external nonReentrant updateReward(address(0)) onlyOperator {
         // Get this contract's reward from StakingRewards
         uint256 rewardsLeft = stakingRewards.earned(address(this));
         if (rewardsLeft > 0) {
@@ -261,6 +278,12 @@ contract AutoCompound is BaseSingleTokenStaking {
         }
     }
 
+    function updateOperator(address newOperator) external onlyOwner {
+        operator = newOperator;
+
+        emit UpdateOperator(newOperator);
+    }
+
     /* ========== MODIFIERS ========== */
 
     modifier updateReward(address account) override {
@@ -279,8 +302,14 @@ contract AutoCompound is BaseSingleTokenStaking {
         _;
     }
 
+    modifier onlyOperator() {
+        require(msg.sender == operator, "Only the contract operator may perform this action");
+        _;
+    }
+
     /* ========== EVENTS ========== */
 
     event Compounded(uint256 lpAmount);
     event RewardPaid(address indexed user, uint256 rewardLPAmount);
+    event UpdateOperator(address newOperator);
 }

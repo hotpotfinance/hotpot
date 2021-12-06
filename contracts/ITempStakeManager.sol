@@ -3,6 +3,7 @@ pragma solidity >=0.5.0 <0.9.0;
 interface ITempStakeManager {
     struct minAmountVars {
         uint256 rewardToToken0Swap;
+        uint256 tokenInToTokenOutSwap;
         uint256 tokenInAddLiq;
         uint256 tokenOutAddLiq;
     }
