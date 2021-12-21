@@ -7,6 +7,7 @@ import "./upgrade/Pausable.sol";
 import "./upgrade/ReentrancyGuard.sol";
 import "./IStakingRewards.sol";
 import "./IConverter.sol";
+import "./IWeth.sol";
 
 // Modified from https://docs.synthetix.io/contracts/source/contracts/stakingrewards
 /// @title A wrapper contract over StakingRewards contract that allows single asset in/out.
@@ -55,6 +56,8 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     function earned(address account) public virtual view returns (uint256) {}
 
     /* ========== MUTATIVE FUNCTIONS ========== */
+
+    receive() external payable {}
 
     function _convertAndAddLiquidity(
         bool isToken0,
@@ -218,14 +221,69 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         emit Withdrawn(msg.sender, lpAmount);
     }
 
+    /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param amount Amount of stake to withdraw
+    function withdrawWithNative(
+        uint256 minToken0AmountConverted,
+        uint256 minToken1AmountConverted,
+        uint256 amount
+    ) public virtual nonReentrant updateReward(msg.sender) {
+        require(amount > 0, "Cannot withdraw 0");
+        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
+        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
+        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+
+        // Update records:
+        // substract withdrawing LP amount from total LP amount staked
+        _totalSupply = (_totalSupply - amount);
+        // substract withdrawing LP amount from user's balance
+        _balances[msg.sender] = (_balances[msg.sender] - amount);
+
+        // Withdraw
+        stakingRewards.withdraw(amount);
+
+        // Convert to wrapped native token
+        uint256 balBefore = IERC20(address(NATIVE_TOKEN)).balanceOf(address(this));
+        lp.safeApprove(address(converter), amount);
+        converter.removeLiquidityAndConvert(
+            IPancakePair(address(lp)),
+            amount,
+            minToken0AmountConverted,
+            minToken1AmountConverted,
+            isToken0 ? 100 : 0,
+            address(this)
+        );
+        uint256 balAfter = IERC20(address(NATIVE_TOKEN)).balanceOf(address(this));
+        // Withdraw native token and send to user
+        NATIVE_TOKEN.withdraw(balAfter - balBefore);
+        payable(msg.sender).transfer(balAfter - balBefore);
+
+        emit Withdrawn(msg.sender, amount);
+    }
+
     /// @notice Get the reward out and convert one asset to another.
     function getReward(uint256 token0Percentage, uint256 minTokenAmountConverted) public virtual updateReward(msg.sender) {}
+
+    /// @notice Get the reward out and convert one asset to another.
+    function getRewardWithNative(uint256 minTokenAmountConverted) public virtual updateReward(msg.sender) {}
 
     /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
     function exit(uint256 minTokenAmountConverted, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage) external virtual {}
 
     /// @notice Withdraw LP tokens from StakingRewards and return to user. Get the reward out and convert one asset to another.
     function exitWithLP(uint256 token0Percentage, uint256 minTokenAmountConverted) external virtual {}
+
+    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another
+    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param minTokenAmountConverted The minimum amount of token0 or token1 received when converting reward token to either one of them
+    function exitWithNative(uint256 token0Percentage, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minTokenAmountConverted) external virtual {
+        withdrawWithNative(minToken0AmountConverted, minToken1AmountConverted, _balances[msg.sender]);
+        getReward(token0Percentage, minTokenAmountConverted);
+    }
 
     /* ========== RESTRICTED FUNCTIONS ========== */
 

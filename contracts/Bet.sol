@@ -314,6 +314,13 @@ contract Bet is BaseSingleTokenStaking {
         tempStakeManager.abort(msg.sender);
     }
 
+    /// @inheritdoc BaseSingleTokenStaking
+    function exitWithNative(uint256 token0Percentage, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minTokenAmountConverted) external override {
+        withdrawWithNative(minToken0AmountConverted, minToken1AmountConverted, _balances[msg.sender]);
+        getReward(token0Percentage, minTokenAmountConverted, true);
+        tempStakeManager.abort(msg.sender);
+    }
+
     /* ========== RESTRICTED FUNCTIONS ========== */
 
     /// @notice Transfer users' stake from TempStakeManager contract back to this contract.
