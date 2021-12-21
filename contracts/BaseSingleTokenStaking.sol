@@ -221,6 +221,13 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         emit Withdrawn(msg.sender, lpAmount);
     }
 
+    function _validateIsNativeToken() internal view returns (address, bool) {
+        address NATIVE_TOKEN = converter.NATIVE_TOKEN();
+        bool isToken0 = NATIVE_TOKEN == address(token0);
+        require(isToken0 || NATIVE_TOKEN == address(token1), "Native token is not either token0 or token1");
+        return (NATIVE_TOKEN, isToken0);
+    }
+
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
     /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
     /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
@@ -231,9 +238,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         uint256 amount
     ) public virtual nonReentrant updateReward(msg.sender) {
         require(amount > 0, "Cannot withdraw 0");
-        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
-        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
-        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+        (address NATIVE_TOKEN, bool isToken0) = _validateIsNativeToken();
 
         // Update records:
         // substract withdrawing LP amount from total LP amount staked
@@ -245,7 +250,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         stakingRewards.withdraw(amount);
 
         // Convert to wrapped native token
-        uint256 balBefore = IERC20(address(NATIVE_TOKEN)).balanceOf(address(this));
+        uint256 balBefore = IERC20(NATIVE_TOKEN).balanceOf(address(this));
         lp.safeApprove(address(converter), amount);
         converter.removeLiquidityAndConvert(
             IPancakePair(address(lp)),
@@ -255,9 +260,9 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
             isToken0 ? 100 : 0,
             address(this)
         );
-        uint256 balAfter = IERC20(address(NATIVE_TOKEN)).balanceOf(address(this));
+        uint256 balAfter = IERC20(NATIVE_TOKEN).balanceOf(address(this));
         // Withdraw native token and send to user
-        NATIVE_TOKEN.withdraw(balAfter - balBefore);
+        IWETH(NATIVE_TOKEN).withdraw(balAfter - balBefore);
         payable(msg.sender).transfer(balAfter - balBefore);
 
         emit Withdrawn(msg.sender, amount);

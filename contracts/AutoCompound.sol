@@ -100,11 +100,9 @@ contract AutoCompound is BaseSingleTokenStaking {
         uint256 minToken1AmountAddLiq
     ) public payable override nonReentrant notPaused updateReward(msg.sender) {
         require(msg.value > 0, "No native tokens sent");
-        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
-        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
-        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+        (address NATIVE_TOKEN, bool isToken0) = _validateIsNativeToken();
 
-        NATIVE_TOKEN.deposit{ value: msg.value }();
+        IWETH(NATIVE_TOKEN).deposit{ value: msg.value }();
         uint256 lpAmount = _convertAndAddLiquidity(isToken0, false, msg.value, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
         lp.safeApprove(address(stakingRewards), lpAmount);
         stakingRewards.stake(lpAmount);

@@ -183,6 +183,13 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
         emit Staked(msg.sender, lpAmount);
     }
 
+    function _validateIsNativeToken() internal view returns (address, bool) {
+        address NATIVE_TOKEN = converter.NATIVE_TOKEN();
+        bool isToken0 = NATIVE_TOKEN == address(token0);
+        require(isToken0 || NATIVE_TOKEN == address(token1), "Native token is not either token0 or token1");
+        return (NATIVE_TOKEN, isToken0);
+    }
+
     /// @notice Take native tokens, convert to wrapped native tokens and stake into StakingRewards contract.
     /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
     /// @param minToken0AmountAddLiq The minimum amount of token0 received when adding liquidity
@@ -193,11 +200,9 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
         uint256 minToken1AmountAddLiq
     ) public payable virtual nonReentrant notPaused updateReward(msg.sender) {
         require(msg.value > 0, "No native tokens sent");
-        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
-        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
-        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+        (address NATIVE_TOKEN, bool isToken0) = _validateIsNativeToken();
 
-        NATIVE_TOKEN.deposit{ value: msg.value }();
+        IWETH(NATIVE_TOKEN).deposit{ value: msg.value }();
         uint256 lpAmount = _convertAndAddLiquidity(isToken0, false, msg.value, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
         lp.safeApprove(address(masterChef), lpAmount);
         masterChef.deposit(pid, lpAmount);

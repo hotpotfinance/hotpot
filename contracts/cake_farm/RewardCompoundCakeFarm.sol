@@ -190,9 +190,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
     /// @inheritdoc BaseSingleTokenStakingCakeFarm
     function withdrawWithNative(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 amount) public override nonReentrant notPaused updateReward(msg.sender) {
         require(amount > 0, "Cannot withdraw 0");
-        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
-        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
-        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+        (address NATIVE_TOKEN, bool isToken0) = _validateIsNativeToken();
 
         uint256 userTotalAmount = userInfo[msg.sender].amount;
 
@@ -205,7 +203,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         // Withdraw from Master Chef
         masterChef.withdraw(pid, amount);
 
-        uint256 balBefore = IERC20(address(NATIVE_TOKEN)).balanceOf(address(this));
+        uint256 balBefore = IERC20(NATIVE_TOKEN).balanceOf(address(this));
         lp.safeApprove(address(converter), amount);
         converter.removeLiquidityAndConvert(
             IPancakePair(address(lp)),
@@ -215,9 +213,9 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
             isToken0 ? 100 : 0,
             address(this)
         );
-        uint256 balAfter = IERC20(address(NATIVE_TOKEN)).balanceOf(address(this));
+        uint256 balAfter = IERC20(NATIVE_TOKEN).balanceOf(address(this));
         // Withdraw native token and send to user
-        NATIVE_TOKEN.withdraw(balAfter - balBefore);
+        IWETH(NATIVE_TOKEN).withdraw(balAfter - balBefore);
         payable(msg.sender).transfer(balAfter - balBefore);
 
         // Withdraw from StakingRewards
