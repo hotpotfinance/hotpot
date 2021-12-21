@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BaseSingleTokenStaking.sol";
+import "./IWeth.sol";
 
 /// @title A wrapper contract over StakingRewards contract that allows single asset in/out,
 /// with autocompound functionality. Autocompound function collects the reward earned, convert
@@ -88,6 +89,26 @@ contract AutoCompound is BaseSingleTokenStaking {
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
+
+    /// @notice Take native tokens, convert to wrapped native tokens and stake into StakingRewards contract.
+    /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
+    /// @param minToken0AmountAddLiq The minimum amount of token0 received when adding liquidity
+    /// @param minToken1AmountAddLiq The minimum amount of token1 received when adding liquidity
+    function stakeWithNative(
+        uint256 minReceivedTokenAmountSwap,
+        uint256 minToken0AmountAddLiq,
+        uint256 minToken1AmountAddLiq
+    ) public payable override nonReentrant notPaused updateReward(msg.sender) {
+        require(msg.value > 0, "No native tokens sent");
+        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
+        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
+        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+
+        NATIVE_TOKEN.deposit{ value: msg.value }();
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, false, msg.value, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
+        lp.safeApprove(address(stakingRewards), lpAmount);
+        stakingRewards.stake(lpAmount);
+    }
 
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
     /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity

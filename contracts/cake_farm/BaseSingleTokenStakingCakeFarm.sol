@@ -7,6 +7,7 @@ import "../upgrade/Pausable.sol";
 import "../upgrade/ReentrancyGuard.sol";
 import "./IMasterChef.sol";
 import "../IConverter.sol";
+import "../IWeth.sol";
 
 // Modified from https://docs.synthetix.io/contracts/source/contracts/stakingrewards
 // and adjusted based on https://github.com/pancakeswap/pancake-farm/blob/master/contracts/MasterChef.sol
@@ -73,6 +74,7 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
 
     function _convertAndAddLiquidity(
         bool isToken0,
+        bool shouldTransferFromSender, 
         uint256 amount,
         uint256 minReceivedTokenAmountSwap,
         uint256 minToken0AmountAddLiq,
@@ -88,10 +90,14 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
         uint256 postBalance;
         uint256 actualAmount;
         if (isToken0) {
-            prevBalance = token0.balanceOf(address(this));
-            token0.safeTransferFrom(msg.sender, address(this), amount);
-            postBalance = token0.balanceOf(address(this));
-            actualAmount = postBalance - prevBalance;
+            if (shouldTransferFromSender) {
+                prevBalance = token0.balanceOf(address(this));
+                token0.safeTransferFrom(msg.sender, address(this), amount);
+                postBalance = token0.balanceOf(address(this));
+                actualAmount = postBalance - prevBalance;
+            } else {
+                actualAmount = amount;
+            }
 
             token0.safeApprove(address(converter), actualAmount);
             converter.convertAndAddLiquidity(
@@ -104,10 +110,14 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
                 address(this)
             );
         } else {
-            prevBalance = token1.balanceOf(address(this));
-            token1.safeTransferFrom(msg.sender, address(this), amount);
-            postBalance = token1.balanceOf(address(this));
-            actualAmount = postBalance - prevBalance;
+            if (shouldTransferFromSender) {
+                prevBalance = token1.balanceOf(address(this));
+                token1.safeTransferFrom(msg.sender, address(this), amount);
+                postBalance = token1.balanceOf(address(this));
+                actualAmount = postBalance - prevBalance;
+            } else {
+                actualAmount = amount;
+            }
 
             token1.safeApprove(address(converter), actualAmount);
             converter.convertAndAddLiquidity(
@@ -150,7 +160,7 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
         uint256 minToken0AmountAddLiq,
         uint256 minToken1AmountAddLiq
     ) public virtual nonReentrant notPaused updateReward(msg.sender) {
-        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, true, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
         lp.safeApprove(address(masterChef), lpAmount);
         masterChef.deposit(pid, lpAmount);
 
@@ -164,6 +174,31 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
     /// @param lpAmount Amount of LP tokens to stake
     function stakeWithLP(uint256 lpAmount) public nonReentrant notPaused updateReward(msg.sender) {
         lp.safeTransferFrom(msg.sender, address(this), lpAmount);
+        lp.safeApprove(address(masterChef), lpAmount);
+        masterChef.deposit(pid, lpAmount);
+
+        // Top up msg.sender's balance
+        userInfo[address(this)].amount = userInfo[address(this)].amount + lpAmount;
+        userInfo[msg.sender].amount = userInfo[msg.sender].amount + lpAmount;
+        emit Staked(msg.sender, lpAmount);
+    }
+
+    /// @notice Take native tokens, convert to wrapped native tokens and stake into StakingRewards contract.
+    /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
+    /// @param minToken0AmountAddLiq The minimum amount of token0 received when adding liquidity
+    /// @param minToken1AmountAddLiq The minimum amount of token1 received when adding liquidity
+    function stakeWithNative(
+        uint256 minReceivedTokenAmountSwap,
+        uint256 minToken0AmountAddLiq,
+        uint256 minToken1AmountAddLiq
+    ) public payable virtual nonReentrant notPaused updateReward(msg.sender) {
+        require(msg.value > 0, "No native tokens sent");
+        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
+        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
+        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+
+        NATIVE_TOKEN.deposit{ value: msg.value }();
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, false, msg.value, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
         lp.safeApprove(address(masterChef), lpAmount);
         masterChef.deposit(pid, lpAmount);
 

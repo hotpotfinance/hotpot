@@ -58,6 +58,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
 
     function _convertAndAddLiquidity(
         bool isToken0,
+        bool shouldTransferFromSender, 
         uint256 amount,
         uint256 minReceivedTokenAmountSwap,
         uint256 minToken0AmountAddLiq,
@@ -70,7 +71,9 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
 
         // Convert and add liquidity
         if (isToken0) {
-            token0.safeTransferFrom(msg.sender, address(this), amount);
+            if (shouldTransferFromSender) {
+                token0.safeTransferFrom(msg.sender, address(this), amount);
+            }
             token0.safeApprove(address(converter), amount);
             converter.convertAndAddLiquidity(
                 address(token0),
@@ -82,7 +85,10 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
                 address(this)
             );
         } else {
-            token1.safeTransferFrom(msg.sender, address(this), amount);
+            if (shouldTransferFromSender) {
+                token1.safeTransferFrom(msg.sender, address(this), amount);
+            }
+
             token1.safeApprove(address(converter), amount);
             converter.convertAndAddLiquidity(
                 address(token1),
@@ -102,10 +108,10 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         lpAmount = (lpAmountAfter - lpAmountBefore);
 
         // Return leftover token to msg.sender
-        if ((token0AmountAfter - token0AmountBefore) > 0) {
+        if (shouldTransferFromSender && (token0AmountAfter - token0AmountBefore) > 0) {
             token0.safeTransfer(msg.sender, (token0AmountAfter - token0AmountBefore));
         }
-        if ((token1AmountAfter - token1AmountBefore) > 0) {
+        if (shouldTransferFromSender && (token1AmountAfter - token1AmountBefore) > 0) {
             token1.safeTransfer(msg.sender, (token1AmountAfter - token1AmountBefore));
         }
     }
@@ -124,7 +130,7 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         uint256 minToken0AmountAddLiq,
         uint256 minToken1AmountAddLiq
     ) public virtual nonReentrant notPaused updateReward(msg.sender) {
-        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, true, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
         lp.safeApprove(address(stakingRewards), lpAmount);
         stakingRewards.stake(lpAmount);
 
@@ -146,6 +152,17 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
         _balances[msg.sender] = _balances[msg.sender] + lpAmount;
         emit Staked(msg.sender, lpAmount);
     }
+
+    /// @notice Take native tokens, convert to wrapped native tokens, convert half to the other token, provide liquidity and stake
+    /// the LP tokens into StakingRewards contract. Leftover token0 or token1 will be returned to msg.sender.
+    /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
+    /// @param minToken0AmountAddLiq The minimum amount of token0 received when adding liquidity
+    /// @param minToken1AmountAddLiq The minimum amount of token1 received when adding liquidity
+    function stakeWithNative(
+        uint256 minReceivedTokenAmountSwap,
+        uint256 minToken0AmountAddLiq,
+        uint256 minToken1AmountAddLiq
+    ) public payable virtual nonReentrant notPaused updateReward(msg.sender) {}
 
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
     function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}

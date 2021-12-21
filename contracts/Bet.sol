@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BaseSingleTokenStaking.sol";
 import "./IPancakeRouter.sol";
 import "./ITempStakeManager.sol";
+import "./IWeth.sol";
 
 /// @title A wrapper contract over StakingRewards contract that allows single asset in/out,
 /// with operator periodically investing accrued rewards and return them with profits.
@@ -140,6 +141,18 @@ contract Bet is BaseSingleTokenStaking {
 
     /* ========== MUTATIVE FUNCTIONS ========== */
 
+    function _stake(address staker, uint256 lpAmount) internal {
+        if (_balances[staker] == 0 && _rewards[staker] == 0) {
+            // If the staker is staking for the first time, set his last get reward period to current period
+            stakerLastGetRewardPeriod[staker] = period;
+        }
+        lp.safeApprove(address(stakingRewards), lpAmount);
+        stakingRewards.stake(lpAmount);
+        _totalSupply = _totalSupply + lpAmount;
+        _balances[staker] = _balances[staker] + lpAmount;
+        emit Staked(staker, lpAmount);
+    }
+
     /// @notice Taken token0 or token1 in, convert half to the other token, provide liquidity and stake
     /// the LP tokens into StakingRewards. Leftover token0 or token1 will be returned to msg.sender.
     /// Note that if user stake when contract in Lock state. The stake will be transfered to TempStakeManager contract
@@ -157,14 +170,10 @@ contract Bet is BaseSingleTokenStaking {
         uint256 minToken0AmountAddLiq,
         uint256 minToken1AmountAddLiq
     ) public override nonReentrant notPaused updateReward(msg.sender) {
-        uint256 lpAmount = _convertAndAddLiquidity(isToken0, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, true, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
 
         if (state == State.Fund) {
-            lp.safeApprove(address(stakingRewards), lpAmount);
-            stakingRewards.stake(lpAmount);
-            _totalSupply = _totalSupply + lpAmount;
-            _balances[msg.sender] = _balances[msg.sender] + lpAmount;
-            emit Staked(msg.sender, lpAmount);
+            _stake(msg.sender, lpAmount);
         } else {
             // If it's in Lock state, transfer LP to TempStakeManager
             lp.transfer(address(tempStakeManager), lpAmount);
@@ -178,17 +187,39 @@ contract Bet is BaseSingleTokenStaking {
         lp.safeTransferFrom(msg.sender, address(this), lpAmount);
 
         if (state == State.Fund) {
-            lp.safeApprove(address(stakingRewards), lpAmount);
-            stakingRewards.stake(lpAmount);
-            _totalSupply = _totalSupply + lpAmount;
-            _balances[msg.sender] = _balances[msg.sender] + lpAmount;
-            emit Staked(msg.sender, lpAmount);
+            _stake(msg.sender, lpAmount);
         } else {
             // If it's in Lock state, transfer LP to TempStakeManager
             lp.transfer(address(tempStakeManager), lpAmount);
             tempStakeManager.stake(msg.sender, lpAmount);
         }
 
+    }
+
+    /// @notice Take native tokens, convert to wrapped native tokens and stake into StakingRewards contract.
+    /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
+    /// @param minToken0AmountAddLiq The minimum amount of token0 received when adding liquidity
+    /// @param minToken1AmountAddLiq The minimum amount of token1 received when adding liquidity
+    function stakeWithNative(
+        uint256 minReceivedTokenAmountSwap,
+        uint256 minToken0AmountAddLiq,
+        uint256 minToken1AmountAddLiq
+    ) public payable override nonReentrant notPaused updateReward(msg.sender) {
+        require(msg.value > 0, "No native tokens sent");
+        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
+        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
+        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+
+        NATIVE_TOKEN.deposit{ value: msg.value }();
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, false, msg.value, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
+
+        if (state == State.Fund) {
+            _stake(msg.sender, lpAmount);
+        } else {
+            // If it's in Lock state, transfer LP to TempStakeManager
+            lp.transfer(address(tempStakeManager), lpAmount);
+            tempStakeManager.stake(msg.sender, lpAmount);
+        }
     }
 
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
@@ -328,12 +359,7 @@ contract Bet is BaseSingleTokenStaking {
 
         (uint256 lpAmount, uint256 convertedLPAmount) = tempStakeManager.exit(staker, minAmounts);
         uint256 stakingLPAmount = lpAmount + convertedLPAmount;
-        // Add the balance to user balance and total supply
-        _totalSupply = _totalSupply + stakingLPAmount;
-        _balances[staker] = _balances[staker] + stakingLPAmount;
-        lp.safeApprove(address(stakingRewards), stakingLPAmount);
-        stakingRewards.stake(stakingLPAmount);
-        emit Staked(staker, stakingLPAmount);
+        _stake(staker, stakingLPAmount);
     }
 
     /// @notice Instruct TempStakeManager contract to exit the user: return LP tokens and rewards to user.

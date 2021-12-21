@@ -2,6 +2,8 @@ pragma solidity >=0.5.0 <0.9.0;
 import "./IPancakePair.sol";
 
 interface IConverter {
+    function NATIVE_TOKEN() external view returns (address);
+
     function convert(
         address _inTokenAddress,
         uint256 _amount,
@@ -10,6 +12,7 @@ interface IConverter {
         uint256 _minReceiveAmount,
         address _recipient
     ) external;
+
     function convertAndAddLiquidity(
         address _inTokenAddress,
         uint256 _amount,
@@ -19,6 +22,7 @@ interface IConverter {
         uint256 _minOutTokenAmountAddLiq,
         address _recipient
     ) external;
+
     function removeLiquidityAndConvert(
         IPancakePair _lp,
         uint256 _lpAmount,
