@@ -208,12 +208,22 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
         emit Staked(msg.sender, lpAmount);
     }
 
-    /// @notice Withdraw stake from MasterChef, remove liquidity and convert to BCNT
-    function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
+    /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
+    /// @param amount Amount of stake to withdraw
+    function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
 
     /// @notice Withdraw LP tokens from MasterChef and return to user.
     /// @param lpAmount Amount of LP tokens to withdraw
     function withdrawWithLP(uint256 lpAmount) public virtual nonReentrant notPaused updateReward(msg.sender) {}
+
+    /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param amount Amount of stake to withdraw
+    function withdrawWithNative(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 amount) public virtual nonReentrant notPaused updateReward(msg.sender) {}
 
     /// @notice Get the reward out and convert one asset to another.
     function getReward(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted) public virtual nonReentrant updateReward(msg.sender) {}
@@ -223,6 +233,13 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
 
     /// @notice Withdraw LP tokens from MasterChef and return to user. Get the reward out and convert one asset to another.
     function exitWithLP(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted) external virtual {}
+
+    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another
+    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param minTokenAmountConverted The minimum amount of token0 or token1 received when converting reward token to either one of them
+    function exitWithNative(uint256 token0Percentage, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minTokenAmountConverted) external virtual {}
 
     /* ========== RESTRICTED FUNCTIONS ========== */
 

@@ -71,6 +71,8 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
 
     /* ========== VIEWS ========== */
 
+    receive() external payable {}
+
     /// @notice Get the reward share earned by specified account.
     function _share(address account) public view returns (uint256) {
         UserInfo memory user = userInfo[account];
@@ -129,11 +131,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         return amountToWithdrawFromStakingRewards;
     }
 
-    /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
-    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
-    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
-    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    /// @param amount Amount of stake to withdraw
+    /// @inheritdoc BaseSingleTokenStakingCakeFarm
     function withdraw(
         uint256 minToken0AmountConverted,
         uint256 minToken1AmountConverted,
@@ -168,8 +166,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         emit Withdrawn(msg.sender, amount, amountToWithdrawFromStakingRewards);
     }
 
-    /// @notice Withdraw LP tokens from StakingRewards contract and return to user.
-    /// @param lpAmount Amount of LP tokens to withdraw
+    /// @inheritdoc BaseSingleTokenStakingCakeFarm
     function withdrawWithLP(uint256 lpAmount) public override nonReentrant notPaused updateReward(msg.sender) {
         require(lpAmount > 0, "Cannot withdraw 0");
         uint256 userTotalAmount = userInfo[msg.sender].amount;
@@ -188,6 +185,45 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         uint256 amountToWithdrawFromStakingRewards = _withdrawFromStakingRewards(lpAmount, userTotalAmount);
 
         emit Withdrawn(msg.sender, lpAmount, amountToWithdrawFromStakingRewards);
+    }
+
+    /// @inheritdoc BaseSingleTokenStakingCakeFarm
+    function withdrawWithNative(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 amount) public override nonReentrant notPaused updateReward(msg.sender) {
+        require(amount > 0, "Cannot withdraw 0");
+        IWETH NATIVE_TOKEN = IWETH(converter.NATIVE_TOKEN());
+        bool isToken0 = address(NATIVE_TOKEN) == address(token0);
+        require(isToken0 || address(NATIVE_TOKEN) == address(token1), "Native token is not either token0 or token1");
+
+        uint256 userTotalAmount = userInfo[msg.sender].amount;
+
+        // Update records:
+        // substract withdrawing LP amount from total LP amount staked
+        userInfo[address(this)].amount = (userInfo[address(this)].amount - amount);
+        // substract withdrawing LP amount from user's balance
+        userInfo[msg.sender].amount = (userInfo[msg.sender].amount - amount);
+
+        // Withdraw from Master Chef
+        masterChef.withdraw(pid, amount);
+
+        uint256 balBefore = IERC20(address(NATIVE_TOKEN)).balanceOf(address(this));
+        lp.safeApprove(address(converter), amount);
+        converter.removeLiquidityAndConvert(
+            IPancakePair(address(lp)),
+            amount,
+            minToken0AmountConverted,
+            minToken1AmountConverted,
+            isToken0 ? 100 : 0,
+            address(this)
+        );
+        uint256 balAfter = IERC20(address(NATIVE_TOKEN)).balanceOf(address(this));
+        // Withdraw native token and send to user
+        NATIVE_TOKEN.withdraw(balAfter - balBefore);
+        payable(msg.sender).transfer(balAfter - balBefore);
+
+        // Withdraw from StakingRewards
+        uint256 amountToWithdrawFromStakingRewards = _withdrawFromStakingRewards(amount, userTotalAmount);
+
+        emit Withdrawn(msg.sender, amount, amountToWithdrawFromStakingRewards);
     }
 
     /// @notice Get the reward out and convert one asset to another. Note that reward is LP token.
@@ -260,6 +296,12 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
     function exitWithLP(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted) external override {
         withdrawWithLP(userInfo[msg.sender].amount);
         getReward(minToken0AmountConverted, minToken1AmountConverted, minBCNTAmountConverted);
+    }
+
+    /// @inheritdoc BaseSingleTokenStakingCakeFarm
+    function exitWithNative(uint256 token0Percentage, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minTokenAmountConverted) external override {
+        withdrawWithNative(minToken0AmountConverted, minToken1AmountConverted, userInfo[msg.sender].amount);
+        getReward(minToken0AmountConverted, minToken1AmountConverted, minTokenAmountConverted);
     }
 
     function _convertCakeToStakingToken(uint256 cakeLeft, minAmountVars memory minAmounts) internal {
