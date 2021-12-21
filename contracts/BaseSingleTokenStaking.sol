@@ -165,7 +165,39 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     ) public payable virtual nonReentrant notPaused updateReward(msg.sender) {}
 
     /// @notice Withdraw stake from StakingRewards, remove liquidity and convert one asset to another.
-    function withdraw(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 token0Percentage, uint256 amount) public virtual nonReentrant updateReward(msg.sender) {}
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
+    /// @param amount Amount of stake to withdraw
+    function withdraw(
+        uint256 minToken0AmountConverted,
+        uint256 minToken1AmountConverted,
+        uint256 token0Percentage,
+        uint256 amount
+    ) public virtual nonReentrant updateReward(msg.sender) {
+        require(amount > 0, "Cannot withdraw 0");
+
+        // Update records:
+        // substract withdrawing LP amount from total LP amount staked
+        _totalSupply = (_totalSupply - amount);
+        // substract withdrawing LP amount from user's balance
+        _balances[msg.sender] = (_balances[msg.sender] - amount);
+
+        // Withdraw
+        stakingRewards.withdraw(amount);
+
+        lp.safeApprove(address(converter), amount);
+        converter.removeLiquidityAndConvert(
+            IPancakePair(address(lp)),
+            amount,
+            minToken0AmountConverted,
+            minToken1AmountConverted,
+            token0Percentage,
+            msg.sender
+        );
+
+        emit Withdrawn(msg.sender, amount);
+    }
 
     /// @notice Withdraw LP tokens from StakingRewards contract and return to user.
     /// @param lpAmount Amount of LP tokens to withdraw
