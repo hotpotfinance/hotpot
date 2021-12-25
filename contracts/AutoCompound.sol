@@ -106,6 +106,11 @@ contract AutoCompound is BaseSingleTokenStaking {
         uint256 lpAmount = _convertAndAddLiquidity(isToken0, false, msg.value, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
         lp.safeApprove(address(stakingRewards), lpAmount);
         stakingRewards.stake(lpAmount);
+
+        // Top up msg.sender's balance
+        _totalSupply = _totalSupply + lpAmount;
+        _balances[msg.sender] = _balances[msg.sender] + lpAmount;
+        emit Staked(msg.sender, lpAmount);
     }
 
     /// @notice Override and intentionally failing the inherited getReward function
