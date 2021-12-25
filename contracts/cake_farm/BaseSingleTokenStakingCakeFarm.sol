@@ -138,10 +138,10 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
         lpAmount = (lpAmountAfter - lpAmountBefore);
 
         // Return leftover token to msg.sender
-        if ((token0AmountAfter - token0AmountBefore) > 0) {
+        if (shouldTransferFromSender && (token0AmountAfter - token0AmountBefore) > 0) {
             token0.safeTransfer(msg.sender, (token0AmountAfter - token0AmountBefore));
         }
-        if ((token1AmountAfter - token1AmountBefore) > 0) {
+        if (shouldTransferFromSender && (token1AmountAfter - token1AmountBefore) > 0) {
             token1.safeTransfer(msg.sender, (token1AmountAfter - token1AmountBefore));
         }
     }
