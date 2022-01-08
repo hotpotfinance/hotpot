@@ -1,0 +1,5 @@
+# stub is for testing only
+contracts/stub/
+contracts/upgrade/
+contracts/interfaces/
+contracts/
