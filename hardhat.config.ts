@@ -1,4 +1,3 @@
-import { task } from "hardhat/config"
 import { ethers } from "hardhat"
 import "@nomiclabs/hardhat-waffle"
 import "@nomiclabs/hardhat-ethers"
@@ -11,13 +10,13 @@ export default {
         localhost: {
             url: "http://127.0.0.1:8545"
         },
-        hardhat: {
-            chainId: 56,
-            forking: {
-                // url: "https://bsc-dataseed.binance.org/",
-                //   blockNumber: 9704575
-            }
-        },
+        // hardhat: {
+        //     chainId: 56,
+        //     forking: {
+        //         url: "https://bsc-dataseed.binance.org/",
+        //         blockNumber: 11218160
+        //     }
+        // },
         testnet: {
             url: "https://data-seed-prebsc-1-s1.binance.org:8545",
             chainId: 97,
@@ -32,7 +31,23 @@ export default {
     solidity: {
         compilers: [
             {
+                version: "0.4.18",
+                settings: {
+                    optimizer: {
+                        enabled: false
+                    }
+                }
+            },
+            {
                 version: "0.5.16",
+                settings: {
+                    optimizer: {
+                        enabled: true
+                    }
+                }
+            },
+            {
+                version: "0.6.12",
                 settings: {
                     optimizer: {
                         enabled: true
@@ -56,7 +71,7 @@ export default {
         artifacts: "./artifacts"
     },
     mocha: {
-        timeout: 100000
+        timeout: 200000
     }
 }
 

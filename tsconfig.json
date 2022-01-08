@@ -15,5 +15,5 @@
       "@test/*": ["test/*"],
     }
   },
-  "include": ["hardhat.config.ts", "test/**/*"]
+  "include": ["hardhat.config.ts", "scripts/**/*", "test/**/*"]
 }
