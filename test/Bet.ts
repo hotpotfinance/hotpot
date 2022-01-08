@@ -1,8 +1,8 @@
 import { expect, use } from "chai"
 import { ethers, network } from "hardhat"
 import { BigNumber, Contract, Signer, Wallet } from "ethers"
-import { fastforward } from "./network"
-import { parseLogsByName } from "./events"
+import { fastforward } from "./utils/network"
+import { parseLogsByName } from "./utils/events"
 
 
 describe("Bet", function () {

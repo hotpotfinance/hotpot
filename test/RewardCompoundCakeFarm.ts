@@ -1,7 +1,7 @@
 import { expect } from "chai"
 import { ethers, network } from "hardhat"
 import { BigNumber, Contract, Signer, Wallet } from "ethers"
-import { mineBlocks } from "./network"
+import { mineBlocks } from "./utils/network"
 
 describe("RewardCompoundCakeFarm", function () {
     // Roles

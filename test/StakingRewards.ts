@@ -1,7 +1,7 @@
 import { expect } from "chai"
 import { ethers, network } from "hardhat"
 import { BigNumber, Contract, Signer, Wallet } from "ethers"
-import { fastforward } from "./network"
+import { fastforward } from "./utils/network"
 
 describe.skip("StakingRewards", function () {
     // Roles
