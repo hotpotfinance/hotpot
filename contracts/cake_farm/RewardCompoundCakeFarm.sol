@@ -1,7 +1,7 @@
 pragma solidity ^0.8.0;
 
 import "./BaseSingleTokenStakingCakeFarm.sol";
-import "../IStakingRewards.sol";
+import "../interfaces/IStakingRewards.sol";
 
 /// @title A wrapper contract over StakingRewards contract that allows single asset in/out,
 /// with autocompound functionality. Autocompound function collects the reward earned, convert

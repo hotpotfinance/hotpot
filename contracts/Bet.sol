@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BaseSingleTokenStaking.sol";
-import "./IPancakeRouter.sol";
-import "./ITempStakeManager.sol";
-import "./IWeth.sol";
+import "./interfaces/IPancakeRouter.sol";
+import "./interfaces/ITempStakeManager.sol";
+import "./interfaces/IWeth.sol";
 
 /// @title A wrapper contract over StakingRewards contract that allows single asset in/out,
 /// with operator periodically investing accrued rewards and return them with profits.

@@ -5,9 +5,9 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import "../upgrade/Pausable.sol";
 import "../upgrade/ReentrancyGuard.sol";
-import "./IMasterChef.sol";
-import "../IConverter.sol";
-import "../IWeth.sol";
+import "../interfaces/IMasterChef.sol";
+import "../interfaces/IConverter.sol";
+import "../interfaces/IWeth.sol";
 
 // Modified from https://docs.synthetix.io/contracts/source/contracts/stakingrewards
 // and adjusted based on https://github.com/pancakeswap/pancake-farm/blob/master/contracts/MasterChef.sol

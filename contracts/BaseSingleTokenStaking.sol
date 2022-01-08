@@ -5,9 +5,9 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import "./upgrade/Pausable.sol";
 import "./upgrade/ReentrancyGuard.sol";
-import "./IStakingRewards.sol";
-import "./IConverter.sol";
-import "./IWeth.sol";
+import "./interfaces/IStakingRewards.sol";
+import "./interfaces/IConverter.sol";
+import "./interfaces/IWeth.sol";
 
 // Modified from https://docs.synthetix.io/contracts/source/contracts/stakingrewards
 /// @title A wrapper contract over StakingRewards contract that allows single asset in/out.

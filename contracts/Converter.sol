@@ -3,8 +3,8 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
-import "./IPancakePair.sol";
-import "./IPancakeRouter.sol";
+import "./interfaces/IPancakePair.sol";
+import "./interfaces/IPancakeRouter.sol";
 
 contract Owned {
     using SafeERC20 for IERC20;

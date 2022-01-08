@@ -4,7 +4,7 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BaseSingleTokenStaking.sol";
-import "./IPancakeRouter.sol";
+import "./interfaces/IPancakeRouter.sol";
 
 /// @title A contract for temporarily managin stake for users. 
 /// @notice When main contract calls `stake`, it receives LP token from main contract and stake it.
