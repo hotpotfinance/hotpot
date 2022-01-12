@@ -1,5 +1,4 @@
 # stub is for testing only
-contracts/stub/
+contracts/stubs/
 contracts/upgrade/
 contracts/interfaces/
-contracts/

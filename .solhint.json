@@ -13,7 +13,7 @@
     "avoid-throw": "error",
     "avoid-tx-origin": "off",
     "check-send-result": "error",
-    "compiler-version": ["error", ">=0.7.0"],
+    "compiler-version": ["warn"],
     "func-visibility": ["error", { "ignoreConstructors": true }],
     "mark-callable-contracts": "off",
     "multiple-sends": "error",
