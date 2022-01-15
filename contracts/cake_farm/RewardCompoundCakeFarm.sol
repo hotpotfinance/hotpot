@@ -3,10 +3,11 @@ pragma solidity ^0.8.0;
 import "./BaseSingleTokenStakingCakeFarm.sol";
 import "../interfaces/IStakingRewards.sol";
 
-/// @title A wrapper contract over StakingRewards contract that allows single asset in/out,
-/// with autocompound functionality. Autocompound function collects the reward earned, convert
-/// them to staking token and stake.
-/// @notice Asset tokens are token0 and token1. Staking token is the LP token of token0/token1.
+/// @title A wrapper contract over MasterChef and StakingRewards contract that allows single asset in/out,
+/// with autocompound functionality. Autocompound function (1) collects the MasterChef reward earned, convert
+/// them to staking token of StakingRewards and stake, and (2) collects the StakingRewards rewards earned and 
+/// convert to staking token of MasterChef and stake.
+/// @notice Asset tokens are token0 and token1. Staking token of MasterChef is the LP token of token0/token1.
 /// User will be earning LP tokens compounded, not the reward token from StakingRewards contract.
 contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
     using SafeERC20 for IERC20;
