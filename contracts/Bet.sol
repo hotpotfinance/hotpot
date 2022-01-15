@@ -26,11 +26,11 @@ contract Bet is BaseSingleTokenStaking {
 
     /* ========== STATE VARIABLES ========== */
 
-    State state;
+    State internal state;
     uint256 public bonus;
     address public operator;
     address public liquidityProvider;
-    IPancakeRouter public router;
+    IPancakeRouter public unused; // Unused variable: kept for backward compatibility
     ITempStakeManager public tempStakeManager;
     uint256 public penaltyPercentage;
     uint256 public rewardBeforeCook;
@@ -47,7 +47,6 @@ contract Bet is BaseSingleTokenStaking {
         IStakingRewards _stakingRewards,
         address _operator,
         address _liquidityProvider,
-        IPancakeRouter _router,
         ITempStakeManager _tempStakeManager,
         uint256 _penaltyPercentage
     ) external {
@@ -66,7 +65,6 @@ contract Bet is BaseSingleTokenStaking {
         state = State.Fund;
         operator = _operator;
         liquidityProvider = _liquidityProvider;
-        router = _router;
         tempStakeManager = _tempStakeManager;
         penaltyPercentage = _penaltyPercentage;
     }
@@ -236,8 +234,8 @@ contract Bet is BaseSingleTokenStaking {
         require(stakerLastGetRewardPeriod[msg.sender] < period, "Already getReward in this period"); 
       
         uint256 reward = _rewards[msg.sender];
-        uint256 totalReward = _rewards[address(this)];
         if (reward > 0) {
+            uint256 totalReward = _rewards[address(this)];
             // If user getReward during Lock state, he only gets part of reward
             uint256 actualReward;
             if (state == State.Fund) {
@@ -347,10 +345,11 @@ contract Bet is BaseSingleTokenStaking {
     function liquidityProviderGetBonus() external nonReentrant onlyLiquidityProvider updateReward(liquidityProvider) {
         uint256 lpRewardsShare = _rewards[liquidityProvider];
         if (lpRewardsShare > 0) {
-            uint256 lpBonusShare = bonus * lpRewardsShare / _rewards[address(this)];
+            uint256 totalReward = _rewards[address(this)];
+            uint256 lpBonusShare = bonus * lpRewardsShare / totalReward;
 
             _rewards[liquidityProvider] = 0;
-            _rewards[address(this)] = (_rewards[address(this)] - lpRewardsShare);
+            _rewards[address(this)] = (totalReward - lpRewardsShare);
             bonus = (bonus - lpBonusShare);
 
             IERC20 rewardToken = IERC20(stakingRewards.rewardsToken());

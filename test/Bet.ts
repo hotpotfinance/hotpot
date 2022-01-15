@@ -251,7 +251,6 @@ describe("Bet", function () {
             stakingRewards.address,
             operatorAddress,
             liquidityProviderAddress,
-            pancakeRouter.address,
             tempStakeManager.address,
             penaltyPercentage
         ])
@@ -323,7 +322,6 @@ describe("Bet", function () {
             stakingRewards.address,
             operatorAddress,
             liquidityProviderAddress,
-            pancakeRouter.address,
             tempStakeManager.address,
             penaltyPercentage
         )).to.be.revertedWith("Already initialized")
