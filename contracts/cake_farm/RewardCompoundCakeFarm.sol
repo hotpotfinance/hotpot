@@ -45,7 +45,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         uint256 _pid,
         IPancakePair _lp,
         IConverter _converter,
-        address _masterChef,
+        IMasterChef _masterChef,
         IStakingRewards _stakingRewards
     ) external {
         require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked("")), "Already initialized");
@@ -61,7 +61,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         token0 = IERC20(_lp.token0());
         token1 = IERC20(_lp.token1());
         converter = _converter;
-        masterChef = IMasterChef(_masterChef);
+        masterChef = _masterChef;
         stakingRewards = _stakingRewards;
         stakingRewardsStakingToken = IERC20(stakingRewards.stakingToken());
         stakingRewardsRewardsToken = IERC20(stakingRewards.rewardsToken());
@@ -70,9 +70,9 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         require(_poolLP == address(_lp), "Wrong LP token");
     }
 
-    /* ========== VIEWS ========== */
-
     receive() external payable {}
+
+    /* ========== VIEWS ========== */
 
     /// @notice Get the reward share earned by specified account.
     function _share(address account) public view returns (uint256) {
@@ -91,7 +91,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
     }
 
     /// @notice Get the total reward share in this contract.
-    /// @notice Total reward is tracked with `_rewards[address(this)]` and `_userRewardPerTokenPaid[address(this)]`
+    /// @notice Total reward is tracked with `userInfo[address(this)].accruedReward`
     function _shareTotal() public view returns (uint256) {
         return _share(address(this));
     }
@@ -239,7 +239,7 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         if (reward > 0) {
             // compoundedLPRewardAmount: based on user's reward and totalReward,
             // determine how many compouned(read: extra) LP amount can user take away.
-            // NOTE: totalReward = _rewards[address(this)];
+            // NOTE: totalReward = userInfo[address(this)].accruedReward;
             uint256 compoundedLPRewardAmount = lpAmountCompounded * reward / totalReward;
 
             // Update records:
