@@ -70,8 +70,6 @@ contract RewardCompoundCakeFarm is BaseSingleTokenStakingCakeFarm {
         require(_poolLP == address(_lp), "Wrong LP token");
     }
 
-    receive() external payable {}
-
     /* ========== VIEWS ========== */
 
     /// @notice Get the reward share earned by specified account.

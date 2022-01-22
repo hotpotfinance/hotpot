@@ -36,6 +36,10 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     uint256 internal _totalSupply;
     mapping(address => uint256) internal _balances;
 
+    /* ========== FALLBACKS ========== */
+
+    receive() external payable {}
+
     /* ========== VIEWS ========== */
 
     /// @dev Get the implementation contract of this proxy contract.
@@ -56,8 +60,6 @@ abstract contract BaseSingleTokenStaking is ReentrancyGuard, Pausable, UUPSUpgra
     function earned(address account) public virtual view returns (uint256) {}
 
     /* ========== MUTATIVE FUNCTIONS ========== */
-
-    receive() external payable {}
 
     function _convertAndAddLiquidity(
         bool isToken0,

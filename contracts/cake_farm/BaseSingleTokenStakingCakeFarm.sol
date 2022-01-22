@@ -42,6 +42,10 @@ abstract contract BaseSingleTokenStakingCakeFarm is ReentrancyGuard, Pausable, U
 
     mapping(address => UserInfo) public userInfo;
 
+    /* ========== FALLBACKS ========== */
+
+    receive() external payable {}
+
     /* ========== VIEWS ========== */
 
     /// @dev Get the implementation contract of this proxy contract.

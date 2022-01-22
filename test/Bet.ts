@@ -269,7 +269,6 @@ describe("Bet", function () {
         expect(await bet.callStatic.token1()).to.equal(token1.address)
         expect(await bet.callStatic.operator()).to.equal(operatorAddress)
         expect(await bet.callStatic.liquidityProvider()).to.equal(liquidityProviderAddress)
-        expect(await bet.callStatic.router()).to.equal(pancakeRouter.address)
         expect(await bet.callStatic.tempStakeManager()).to.equal(tempStakeManager.address)
         expect(await bet.callStatic.penaltyPercentage()).to.equal(penaltyPercentage)
 
@@ -829,6 +828,7 @@ describe("Bet", function () {
             const expectedStakingRewardsReward = betEarnedRewardsBefore.add(rewardBeforeCookAmountBefore).mul(userRewardShareBefore).div(totalRewardShareBefore)
             expect(actualStakingRewardsReward).to.be.gte(expectedStakingRewardsReward)
             // Diff should be less than 1%
+            console.log(`StakingRewards reward amount diff: ${actualStakingRewardsReward.sub(expectedStakingRewardsReward)}`)
             expect(actualStakingRewardsReward.sub(expectedStakingRewardsReward)).to.be.lt(actualStakingRewardsReward.div(100))
             receivedBonusAmount = receivedBonusAmount.add(actualStakingRewardsReward)
         }
@@ -996,6 +996,7 @@ describe("Bet", function () {
             receivedBonusAmount.gt(expectedBonusAmountReceived) ?
             receivedBonusAmount.sub(expectedBonusAmountReceived) : expectedBonusAmountReceived.sub(receivedBonusAmount)
         )
+        console.log(`Bonus amount diff: ${bonusAmountDiff}`)
         expect(bonusAmountDiff).to.be.lt(10**6)
         // Operator should receive the other part of bonus
         const liquidityProviderRewardShareAfter = await bet.callStatic._share(liquidityProviderAddress)

@@ -15,7 +15,7 @@ contract StubPancakeRouter {
     function _getLPAddr(address tokenA, address tokenB) internal returns (address) {
         if (lpAddr[tokenA][tokenB] != address(0)) return lpAddr[tokenA][tokenB];
         else if (lpAddr[tokenB][tokenA] != address(0)) return lpAddr[tokenB][tokenA];
-        else revert("Pari not exist");
+        else revert("Pair not exist");
     }
 
     function setLPAddr(address tokenA, address tokenB, address lp) external {
