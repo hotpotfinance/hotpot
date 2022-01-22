@@ -1,7 +1,7 @@
 pragma solidity ^0.8.0;
 
 import "./BaseSingleTokenStakingCakeFarm.sol";
-import "../interfaces/IStakingRewards.sol";
+import "../interfaces/ITempStakeManagerCakeFarm.sol";
 
 /// @title A wrapper contract over MasterChef contract that allows single asset in/out,
 /// with operator periodically investing accrued rewards and return them with profits.
@@ -18,6 +18,8 @@ import "../interfaces/IStakingRewards.sol";
 contract BetCakeFarm is BaseSingleTokenStakingCakeFarm {
     using SafeERC20 for IERC20;
 
+    enum State { Fund, Lock }
+
     struct BalanceDiff {
         uint256 balBefore;
         uint256 balAfter;
@@ -25,7 +27,7 @@ contract BetCakeFarm is BaseSingleTokenStakingCakeFarm {
     }
 
     struct minAmountVars {
-        uint256 cakeToStakingTokenSwap;
+        uint256 cakeToBCNTSwap;
         uint256 rewardToToken0Swap;
         uint256 tokenInToTokenOutSwap;
         uint256 tokenInAddLiq;
@@ -34,47 +36,62 @@ contract BetCakeFarm is BaseSingleTokenStakingCakeFarm {
 
     /* ========== STATE VARIABLES ========== */
 
+    State internal state;
+    uint256 public bonus;
     address public operator;
+    address public liquidityProvider;
+    ITempStakeManagerCakeFarm public tempStakeManager;
+    uint256 public penaltyPercentage;
+    uint256 public period;
+    mapping(address => uint256) public stakerLastGetRewardPeriod;
+
 
     /* ========== CONSTRUCTOR ========== */
 
     function initialize(
         string memory _name,
         address _owner,
-        address _operator,
         address _BCNT,
         IERC20 _cake,
         uint256 _pid,
-        IPancakePair _lp,
         IConverter _converter,
-        address _masterChef,
-        IStakingRewards _stakingRewards
+        IMasterChef _masterChef,
+        address _operator,
+        address _liquidityProvider,
+        ITempStakeManagerCakeFarm _tempStakeManager,
+        uint256 _penaltyPercentage
     ) external {
         require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked("")), "Already initialized");
         super.initializePausable(_owner);
         super.initializeReentrancyGuard();
 
         name = _name;
-        operator = _operator;
         BCNT = _BCNT;
         cake = _cake;
         pid = _pid;
-        lp = IERC20(address(_lp));
-        token0 = IERC20(_lp.token0());
-        token1 = IERC20(_lp.token1());
         converter = _converter;
-        masterChef = IMasterChef(_masterChef);
-        stakingRewards = _stakingRewards;
-        stakingRewardsStakingToken = IERC20(stakingRewards.stakingToken());
-        stakingRewardsRewardsToken = IERC20(stakingRewards.rewardsToken());
+        masterChef = _masterChef;
 
         (address _poolLP, , ,) = masterChef.poolInfo(_pid);
-        require(_poolLP == address(_lp), "Wrong LP token");
+        lp = IERC20(_poolLP);
+        token0 = IERC20(IPancakePair(_poolLP).token0());
+        token1 = IERC20(IPancakePair(_poolLP).token1());
+
+        period = 1;
+        state = State.Fund;
+        operator = _operator;
+        liquidityProvider = _liquidityProvider;
+        tempStakeManager = _tempStakeManager;
+        penaltyPercentage = _penaltyPercentage;
     }
 
     /* ========== VIEWS ========== */
 
-    receive() external payable {}
+    /// @notice Get the State of the contract.
+    function getState() public view returns (string memory) {
+        if (state == State.Fund) return "Fund";
+        else return "Lock";
+    }
 
     /// @notice Get the reward share earned by specified account.
     function _share(address account) public view returns (uint256) {
@@ -93,94 +110,330 @@ contract BetCakeFarm is BaseSingleTokenStakingCakeFarm {
     }
 
     /// @notice Get the total reward share in this contract.
-    /// @notice Total reward is tracked with `_rewards[address(this)]` and `_userRewardPerTokenPaid[address(this)]`
+    /// @notice Total reward is tracked with `userInfo[address(this)].accruedReward`
     function _shareTotal() public view returns (uint256) {
         return _share(address(this));
     }
 
-    /// @notice Get the compounded LP amount earned by specified account.
+    /// @notice Get the reward amount earned by specified account.
     function earned(address account) public override view returns (uint256) {
+        // Can not getReward if already did in this period
+        if (stakerLastGetRewardPeriod[account] >= period) return 0;
 
+        uint256 rewardsShare;
+        if (account == address(this)){
+            rewardsShare = _shareTotal();
+        } else {
+            rewardsShare = _share(account);
+        }
+
+        uint256 earnedBonusAmount;
+        if (rewardsShare > 0) {
+            uint256 totalShare = _shareTotal();
+            // Earned bonus amount is proportional to how many rewards this account has
+            // among total rewards
+            earnedBonusAmount = bonus * rewardsShare / totalShare;
+        }
+        return earnedBonusAmount;
+    }
+
+    /// @notice Get the locked reward amount earned by specified account.
+    /// "Locked" means this is not the bonus for user to claim. This is the reward used to cook.
+    /// Only the reward served is available for user to claim.
+    /// This function is used to preview the user's reward that will be used to cook. 
+    /// However, this locked amount can be claim in one exeption where user getReward during Fund state.
+    /// See more detail in `getReward`
+    function earnedLocked(address account) public view returns (uint256) {
+        uint256 totalLockedReward = masterChef.pendingCake(pid, address(this)) + cake.balanceOf(address(this));
+
+        uint256 userEarnedLockedReward;
+        uint256 rewardsShare;
+        uint256 totalShare;
+        if (account == address(this)){
+            rewardsShare = _shareTotal();
+        } else {
+            rewardsShare = _share(account);
+        }
+        if (rewardsShare > 0) {
+            totalShare = _shareTotal();
+            userEarnedLockedReward = totalLockedReward * _share(account) / _shareTotal();
+        }
+        return userEarnedLockedReward;
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
 
-    /// @inheritdoc BaseSingleTokenStakingCakeFarm
-    function withdraw(
-        uint256 minToken0AmountConverted,
-        uint256 minToken1AmountConverted,
-        uint256 token0Percentage,
-        uint256 amount
-    ) public override nonReentrant updateReward(msg.sender) {
+
+    function _stake(address staker, uint256 lpAmount) internal override {
+        if (userInfo[staker].amount == 0 && userInfo[staker].accruedReward == 0) {
+            // If the staker is staking for the first time, set his last get reward period to current period
+            stakerLastGetRewardPeriod[staker] = period;
+        }
+        super._stake(staker, lpAmount);
+    }
+
+    /// @notice Taken token0 or token1 in, convert half to the other token, provide liquidity and stake
+    /// the LP tokens into MasterChef. Leftover token0 or token1 will be returned to msg.sender.
+    /// Note that if user stake when contract in Lock state. The stake will be transfered to TempStakeManager contract
+    /// and accrue rewards there. Operator need to transfer users' stake from TempStakeManager contract after
+    /// contract enters Fund state.
+    /// @param isToken0 Determine if token0 is the token msg.sender going to use for staking, token1 otherwise
+    /// @param amount Amount of token0 or token1 to stake
+    /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
+    /// @param minToken0AmountAddLiq The minimum amount of token0 received when adding liquidity
+    /// @param minToken1AmountAddLiq The minimum amount of token1 received when adding liquidity
+    function stake(
+        bool isToken0,
+        uint256 amount,
+        uint256 minReceivedTokenAmountSwap,
+        uint256 minToken0AmountAddLiq,
+        uint256 minToken1AmountAddLiq
+    ) public override nonReentrant notPaused updateReward(msg.sender) {
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, true, amount, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
+
+        if (state == State.Fund) {
+            _stake(msg.sender, lpAmount);
+        } else {
+            // If it's in Lock state, transfer LP to TempStakeManager
+            lp.transfer(address(tempStakeManager), lpAmount);
+            tempStakeManager.stake(msg.sender, lpAmount);
+        }
+    }
+
+    /// @notice Take LP tokens and stake into MasterChef contract.
+    /// @param lpAmount Amount of LP tokens to stake
+    function stakeWithLP(uint256 lpAmount) public override nonReentrant notPaused updateReward(msg.sender) {
+        lp.safeTransferFrom(msg.sender, address(this), lpAmount);
+
+        if (state == State.Fund) {
+            _stake(msg.sender, lpAmount);
+        } else {
+            // If it's in Lock state, transfer LP to TempStakeManager
+            lp.transfer(address(tempStakeManager), lpAmount);
+            tempStakeManager.stake(msg.sender, lpAmount);
+        }
 
     }
 
-    /// @inheritdoc BaseSingleTokenStakingCakeFarm
-    function withdrawWithLP(uint256 lpAmount) public override nonReentrant notPaused updateReward(msg.sender) {
+    /// @notice Take native tokens, convert to wrapped native tokens and stake into MasterChef contract.
+    /// @param minReceivedTokenAmountSwap Minimum amount of token0 or token1 received when swapping one for the other
+    /// @param minToken0AmountAddLiq The minimum amount of token0 received when adding liquidity
+    /// @param minToken1AmountAddLiq The minimum amount of token1 received when adding liquidity
+    function stakeWithNative(
+        uint256 minReceivedTokenAmountSwap,
+        uint256 minToken0AmountAddLiq,
+        uint256 minToken1AmountAddLiq
+    ) public payable override nonReentrant notPaused updateReward(msg.sender) {
+        require(msg.value > 0, "No native tokens sent");
+        (address NATIVE_TOKEN, bool isToken0) = _validateIsNativeToken();
 
+        IWETH(NATIVE_TOKEN).deposit{ value: msg.value }();
+        uint256 lpAmount = _convertAndAddLiquidity(isToken0, false, msg.value, minReceivedTokenAmountSwap, minToken0AmountAddLiq, minToken1AmountAddLiq);
+
+        if (state == State.Fund) {
+            _stake(msg.sender, lpAmount);
+        } else {
+            // If it's in Lock state, transfer LP to TempStakeManager
+            lp.transfer(address(tempStakeManager), lpAmount);
+            tempStakeManager.stake(msg.sender, lpAmount);
+        }
     }
 
-    /// @inheritdoc BaseSingleTokenStakingCakeFarm
-    function withdrawWithNative(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 amount) public override nonReentrant notPaused updateReward(msg.sender) {
-
+    function getReward(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted) public override {
+        revert("This function is not available");
     }
 
-    /// @notice Get the reward out and convert one asset to another. Note that reward is LP token.
+    /// @notice Transfer BCNT to user according to his share
+    /// During Lock state, liquidity provider need to front the rewards user is trying to get, so a portion of rewards
+    /// , i.e., penalty,  will be confiscated and paid to liquiditiy provider.
+    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping Cake for BCNT
+    /// @param getMasterChefReward True indicates that user also gets reward out from MasterChef
+    function getReward(uint256 minBCNTAmountConverted, bool getMasterChefReward) public updateReward(msg.sender) {
+        require(stakerLastGetRewardPeriod[msg.sender] < period, "Already getReward in this period");
+      
+        uint256 reward = userInfo[msg.sender].accruedReward;
+        if (reward > 0) {
+            uint256 totalReward = userInfo[address(this)].accruedReward;
+            // If user getReward during Lock state, he only gets part of reward
+            uint256 actualReward;
+            if (state == State.Fund) {
+                actualReward = reward;
+            } else {
+                actualReward = reward * (100 - penaltyPercentage) / 100;
+            }
+            // bonusShare: based on user's reward and totalReward,
+            // determine how many bonus can user take away.
+            // NOTE: totalReward = userInfo[address(this)].accruedReward;
+            uint256 bonusShare = bonus * actualReward / totalReward;
+
+            // Update records:
+            userInfo[msg.sender].accruedReward = 0;
+            // Add (reward - actualReward) to liquidity provider's rewards
+            userInfo[liquidityProvider].accruedReward = userInfo[liquidityProvider].accruedReward + (reward - actualReward);
+            // substract user's rewards from totalReward
+            userInfo[address(this)].accruedReward = (totalReward - actualReward);
+            // substract bonusShare from bonus
+            bonus = (bonus - bonusShare);
+
+            // If user getReward during Lock state, transfer from liquidityProvider to front the rewards
+            if (state == State.Lock) {
+                IERC20(BCNT).safeTransferFrom(liquidityProvider, address(this), bonusShare);
+            }
+
+            // If user getReward during Fund state and also wants to get MasterChef reward out
+            if (state == State.Fund && getMasterChefReward) {
+                // Get reward from MasterChef by performing a no-op
+                masterChef.deposit(pid, 0);
+                uint256 masterChefReward = cake.balanceOf(address(this)) * actualReward / totalReward;
+                uint256 convertedAmount = _convertCakeToBCNT(masterChefReward, minBCNTAmountConverted);
+                bonusShare += convertedAmount;
+                emit MasterChefReward(masterChefReward);
+            }
+
+            IERC20(BCNT).safeTransfer(msg.sender, bonusShare);
+            stakerLastGetRewardPeriod[msg.sender] = period;
+            emit RewardPaid(msg.sender, bonusShare);
+        }
+    }
+
+    /// @notice Withdraw all stake from MasterChef, remove liquidity, get the reward out and convert one asset to another.
     /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
     /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
-    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping token0 for BCNT
-    function getReward(
+    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping Cake for BCNT
+    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
+    function exit(
+        uint256 minToken0AmountConverted,
+        uint256 minToken1AmountConverted,
+        uint256 minBCNTAmountConverted,
+        uint256 token0Percentage
+    ) external override {
+        withdraw(minToken0AmountConverted, minToken1AmountConverted, token0Percentage, userInfo[msg.sender].amount);
+        getReward(minBCNTAmountConverted, true);
+        tempStakeManager.abort(msg.sender, minBCNTAmountConverted);
+    }
+
+    function exitWithLP(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted) external override {
+        revert("This function is not available");
+    }
+
+    /// @notice Withdraw all stake from MasterChef, remove liquidity, get the reward out and convert one asset to another.
+    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping Cake for BCNT
+    function exitWithLP(uint256 minBCNTAmountConverted) external {
+        withdrawWithLP(userInfo[msg.sender].amount);
+        getReward(minBCNTAmountConverted, true);
+        tempStakeManager.abort(msg.sender, minBCNTAmountConverted);
+    }
+
+    function exitWithNative(uint256 token0Percentage, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minTokenAmountConverted) external override {
+        revert("This function is not available");
+    }
+
+    /// @notice Withdraw all stake from MasterChef, remove liquidity, get the reward out and convert one asset to another
+    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
+    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
+    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping Cake for BCNT
+    function exitWithNative(
         uint256 minToken0AmountConverted,
         uint256 minToken1AmountConverted,
         uint256 minBCNTAmountConverted
-    ) public override updateReward(msg.sender) {
-
-    }
-
-    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
-    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
-    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
-    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping token0 for BCNT
-    /// @param token0Percentage Determine what percentage of token0 to return to user. Any number between 0 to 100
-    function exit(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted, uint256 token0Percentage) external override {
-        withdraw(minToken0AmountConverted, minToken1AmountConverted, token0Percentage, userInfo[msg.sender].amount);
-        getReward(minToken0AmountConverted, minToken1AmountConverted, minBCNTAmountConverted);
-    }
-
-    /// @notice Withdraw all stake from StakingRewards, remove liquidity, get the reward out and convert one asset to another.
-    /// @param minToken0AmountConverted The minimum amount of token0 received when removing liquidity
-    /// @param minToken1AmountConverted The minimum amount of token1 received when removing liquidity
-    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping token0 for BCNT
-    function exitWithLP(uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minBCNTAmountConverted) external override {
-        withdrawWithLP(userInfo[msg.sender].amount);
-        getReward(minToken0AmountConverted, minToken1AmountConverted, minBCNTAmountConverted);
-    }
-
-    /// @inheritdoc BaseSingleTokenStakingCakeFarm
-    function exitWithNative(uint256 token0Percentage, uint256 minToken0AmountConverted, uint256 minToken1AmountConverted, uint256 minTokenAmountConverted) external override {
+    ) external {
         withdrawWithNative(minToken0AmountConverted, minToken1AmountConverted, userInfo[msg.sender].amount);
-        getReward(minToken0AmountConverted, minToken1AmountConverted, minTokenAmountConverted);
+        getReward(minBCNTAmountConverted, true);
+        tempStakeManager.abort(msg.sender, minBCNTAmountConverted);
     }
 
-    function _convertCakeToStakingToken(uint256 cakeLeft, minAmountVars memory minAmounts) internal {
 
+    /* ========== RESTRICTED FUNCTIONS ========== */
+
+    /// @notice Transfer users' stake from TempStakeManager contract back to this contract.
+    /// @param stakerIndex Index of the staker to transfer his stake from TempStakeManager contract
+    function transferStake(uint256 stakerIndex, ITempStakeManagerCakeFarm.minAmountVars memory minAmounts) external onlyOperator notLocked {
+        address staker = tempStakeManager.getStakerAt(stakerIndex);
+        _updateRewardBefore(staker);
+
+        (uint256 lpAmount, uint256 convertedLPAmount) = tempStakeManager.exit(staker, minAmounts);
+        uint256 stakingLPAmount = lpAmount + convertedLPAmount;
+        _stake(staker, stakingLPAmount);
+        _updateRewardAfter(staker);
     }
 
-    /// @notice compound is split into two parts but pipelined, both part will be exectued each time:
-    /// First part: get all Cake out from MasterChef contract, convert all to staking token of StakingRewards contract
-    /// Second part: get all rewards out from StakingReward, convert rewards to both token0 and token1 and provide liquidity and stake
-    /// the LP tokens back into MasterChef contract.
-    /// @dev LP tokens staked this way will be tracked in `lpAmountCompounded`.
-    /// @param minAmounts The minimum amounts of
-    /// 1. stakingRewardsStakingToken expected to receive when swapping Cake for stakingRewardsStakingToken
-    /// 2. token0 expected to receive when swapping stakingRewardsRewardsToken for token0
-    /// 3. tokenOut expected to receive when swapping inToken for outToken
-    /// 4. tokenIn expected to add when adding liquidity
-    /// 5. tokenOut expected to add when adding liquidity
-    function compound(
-        minAmountVars memory minAmounts
-    ) external nonReentrant updateReward(address(0)) onlyOperator {
+    /// @notice Instruct TempStakeManager contract to exit the user: return LP tokens and rewards to user.
+    /// @param stakers List of stakers to exit
+    /// @param minBCNTAmounts List of minimum amount of BCNT received swapping Cake for BCNT
+    function abortFromTempStakeManager(address[] calldata stakers, uint256[] calldata minBCNTAmounts) external onlyOperator {
+        for (uint256 i = 0; i < stakers.length; i++) {
+            address staker = stakers[i];
+            tempStakeManager.abort(staker, minBCNTAmounts[i]);
+        }
+    }
 
+    /// @notice getReward function for liquidity provider. Liquidity provider is not subject to the penalty
+    /// when getReward during Lock state. Liquidity provider will earn rewards because the penalty user paid
+    /// goes to liquidity provider.
+    function liquidityProviderGetBonus() external nonReentrant onlyLiquidityProvider updateReward(liquidityProvider) {
+        uint256 lpRewardsShare = userInfo[liquidityProvider].accruedReward;
+        if (lpRewardsShare > 0) {
+            uint256 totalReward = userInfo[address(this)].accruedReward;
+            uint256 lpBonusShare = bonus * lpRewardsShare / totalReward;
+
+            userInfo[liquidityProvider].accruedReward = 0;
+            userInfo[address(this)].accruedReward = (totalReward - lpRewardsShare);
+            bonus = (bonus - lpBonusShare);
+
+            IERC20(BCNT).safeTransfer(liquidityProvider, lpBonusShare);
+
+            emit RewardPaid(liquidityProvider, lpBonusShare);
+        }
+    }
+
+    /// @notice Get all reward out from MasterChef contract and transfer them to
+    /// operator so operator can invest them.
+    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping Cake for BCNT
+    function cook(uint256 minBCNTAmountConverted) external nonReentrant notLocked onlyOperator {
+        // Get reward from MasterChef by performing a no-op
+        masterChef.deposit(pid, 0);
+        uint256 cakeLeft = cake.balanceOf(address(this));
+        _convertCakeToBCNT(cakeLeft, minBCNTAmountConverted);
+        // Transfer all BCNT to operator
+        uint256 allRewards = IERC20(BCNT).balanceOf(address(this));
+        IERC20(BCNT).safeTransfer(operator, allRewards);
+
+        state = State.Lock;
+
+        emit Cook(allRewards);
+    }
+
+    /// @notice Opreator returns reward.
+    function serve(uint256 amount) external nonReentrant locked onlyOperator {
+        // Transfer BCNT from operator
+        IERC20(BCNT).safeTransferFrom(operator, address(this), amount);
+
+        bonus = amount;
+        state = State.Fund;
+        period += 1;
+
+        emit Serve(amount);
+    }
+
+    function _convertCakeToBCNT(uint256 cakeLeft, uint256 minBCNTAmountConverted) internal returns (uint256) {
+        // Convert Cake to BCNT
+        uint256 balBefore = IERC20(BCNT).balanceOf(address(this));
+        cake.safeApprove(address(converter), cakeLeft);
+        converter.convert(address(cake), cakeLeft, 100, BCNT, minBCNTAmountConverted, address(this));
+        uint256 convertedAmount = IERC20(BCNT).balanceOf(address(this)) - balBefore;
+
+        return convertedAmount;
+    }
+
+    /// @notice Get cake from MasterChef plus remaining cake on this contract and convert cake to BCNT
+    /// @param minBCNTAmountConverted The minimum amount of BCNT received swapping Cake for BCNT
+    function compound(uint256 minBCNTAmountConverted) external nonReentrant updateReward(address(0)) onlyOperator {
+        // Get reward from MasterChef by performing a no-op
+        masterChef.deposit(pid, 0);
+        uint256 cakeLeft = cake.balanceOf(address(this));
+        if (cakeLeft > 0) {
+            _convertCakeToBCNT(cakeLeft, minBCNTAmountConverted);
+        }
     }
 
     function updateOperator(address newOperator) external onlyOwner {
@@ -189,27 +442,33 @@ contract BetCakeFarm is BaseSingleTokenStakingCakeFarm {
         emit UpdateOperator(newOperator);
     }
 
+    function updateLiquidityProvider(address newLiquidityProvider) external onlyOwner {
+        _updateRewardBefore(liquidityProvider);
+        _updateRewardBefore(newLiquidityProvider);
+
+        userInfo[newLiquidityProvider].accruedReward += userInfo[liquidityProvider].accruedReward;
+        userInfo[liquidityProvider].accruedReward = 0;
+        liquidityProvider = newLiquidityProvider;
+
+        _updateRewardAfter(liquidityProvider);
+        _updateRewardAfter(newLiquidityProvider);
+    }
+
+    function setPenaltyPercentage(uint256 newPenaltyPercentage) external onlyOperator {
+        require((newPenaltyPercentage >= 0) && (newPenaltyPercentage <= 100), "Invalid penalty percentage");
+        penaltyPercentage = newPenaltyPercentage;
+    }
+
     /* ========== MODIFIERS ========== */
 
-    modifier updateReward(address account) override {
-        masterChef.updatePool(pid);
-        uint256 accCakePerShare = _getAccCakePerShare();
-        UserInfo storage user = userInfo[account];
-        UserInfo storage total = userInfo[address(this)];
-
-        if (account != address(0)) {
-            uint256 userPending = user.amount * accCakePerShare / 1e12 - user.rewardDebt;
-            user.accruedReward = user.accruedReward + userPending;
-            uint256 totalPending = total.amount * accCakePerShare / 1e12 - total.rewardDebt;
-            total.accruedReward = total.accruedReward + totalPending;
-        }
-
+    modifier notLocked() {
+        require(state == State.Fund, "Contract is in locked state");
         _;
+    }
 
-        if (account != address(0)) {
-            user.rewardDebt = user.amount * accCakePerShare / 1e12;
-            total.rewardDebt = total.amount * accCakePerShare / 1e12;
-        }
+    modifier locked() {
+        require(state == State.Lock, "Contract is not in locked state");
+        _;
     }
 
     modifier onlyOperator() {
@@ -217,11 +476,17 @@ contract BetCakeFarm is BaseSingleTokenStakingCakeFarm {
         _;
     }
 
+    modifier onlyLiquidityProvider() {
+        require(msg.sender == liquidityProvider, "Only the contract liquidity provider may perform this action");
+        _;
+    }
+
     /* ========== EVENTS ========== */
 
-    event Withdrawn(address indexed user, uint256 autoCompoundStakingTokenAmount, uint256 stakingRewardsStakingTokenAmount);
-    event StakedToStakingReward(uint256 stakeAmount);
     event Compounded(uint256 lpAmount);
-    event RewardPaid(address indexed user, uint256 rewardLPAmount);
+    event Cook(uint256 rewardAmount);
+    event Serve(uint256 rewardAmount);
+    event MasterChefReward(uint256 amount);
+    event RewardPaid(address indexed user, uint256 reward);
     event UpdateOperator(address newOperator);
 }
