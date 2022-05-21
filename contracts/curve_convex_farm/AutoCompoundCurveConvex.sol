@@ -54,7 +54,7 @@ contract AutoCompoundCurveConvex is ReentrancyGuard, Pausable, UUPSUpgradeable {
     address public operator;
 
     bytes public cvxUniV3SwapPath; // e.g., CVX -> WETH -> token0
-    bytes public bcntUniV3SwapPath; // e.g., token0 -> WETH -> CVX
+    bytes public bcntUniV3SwapPath; // e.g., token0 -> WETH -> BCNT
 
     /* ========== FALLBACKS ========== */
 
@@ -331,6 +331,7 @@ contract AutoCompoundCurveConvex is ReentrancyGuard, Pausable, UUPSUpgradeable {
     /// @notice Withdraw all stake from BaseRewardPool, remove liquidity, get the reward out and convert one asset to another.
     /// @param toToken0 Determine to convert all to token0 or token 1
     /// @param minAmountReceived The minimum amount of token0 or token1 received when removing liquidity
+    /// @param minAmountBCNTReceived The minimum amount of BCNT received when converting token0 to BCNT
     function exit(bool toToken0, uint256 minAmountReceived, uint256 minAmountBCNTReceived) external {
         withdraw(toToken0, minAmountReceived, _balances[msg.sender]);
         getReward(minAmountReceived, minAmountBCNTReceived);
@@ -338,6 +339,7 @@ contract AutoCompoundCurveConvex is ReentrancyGuard, Pausable, UUPSUpgradeable {
 
     /// @notice Withdraw all stake from BaseRewardPool, get the reward out and convert one asset to another.
     /// @param minAmountReceived The minimum amount of token0 or token1 received when removing liquidity
+    /// @param minAmountBCNTReceived The minimum amount of BCNT received when converting token0 to BCNT
     function exitWithLP(uint256 minAmountReceived, uint256 minAmountBCNTReceived) external {
         withdrawWithLP(_balances[msg.sender]);
         getReward(minAmountReceived, minAmountBCNTReceived);
