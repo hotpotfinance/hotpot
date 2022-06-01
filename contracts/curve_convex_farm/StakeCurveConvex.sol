@@ -375,6 +375,11 @@ contract StakeCurveConvex is ReentrancyGuard, Pausable, UUPSUpgradeable {
         emit Compounded(bcntAmountDiff.balDiff);
     }
 
+    function addBCNTReward(uint256 amount) external onlyOperator {
+        BCNT.safeTransferFrom(operator, address(this), amount);
+        bcntRewardAmount = bcntRewardAmount + amount;
+    }
+
     function recoverERC20(address tokenAddress, uint256 tokenAmount) external onlyOwner {
         require(tokenAddress != address(lp), "Cannot withdraw the staking token");
         IERC20(tokenAddress).safeTransfer(owner, tokenAmount);

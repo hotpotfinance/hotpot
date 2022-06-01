@@ -85,6 +85,7 @@ describe("StakeCurveConvex", function () {
         // Set token balance
         await setERC20Balance(dai.address, userAddress, ethers.utils.parseEther("10000000"))
         await setERC20Balance(usdc.address, userAddress, ethers.utils.parseUnits("10000000", "mwei"))
+        await setERC20Balance(bcnt.address, operatorAddress, ethers.utils.parseUnits("10000"))
 
         
         // Use deployed Converter instance
@@ -391,6 +392,23 @@ describe("StakeCurveConvex", function () {
         console.log(`Earned ${earnedRewards} rewards in ${ffSeconds} seconds`)
     })
 
+    it("Should addBCNTReward by operator", async () => {
+        const bcntRewardAmountBefore = await stakeCurveConvex.callStatic.bcntRewardAmount()
+
+        const addRewardAmount = ethers.utils.parseUnits("1000") // 1000 BCNT
+        await bcnt.connect(operator).approve(stakeCurveConvex.address, addRewardAmount)
+
+        const tx = await stakeCurveConvex.connect(operator).addBCNTReward(addRewardAmount)
+
+        const bcntRewardAmountAfter = await stakeCurveConvex.callStatic.bcntRewardAmount()
+        expect(bcntRewardAmountAfter.sub(bcntRewardAmountBefore)).to.equal(addRewardAmount)
+        const addedRewards = ethers.utils.formatUnits(
+            bcntRewardAmountAfter.sub(bcntRewardAmountBefore),
+            18
+        )
+        console.log(`Operator added ${addedRewards} rewards`)
+    })
+
     it("Should withdraw and convert to DAI", async () => {
         const userDAIBalanceBefore = await dai.callStatic.balanceOf(userAddress)
         const userStakeBalanceBefore = await stakeCurveConvex.callStatic.balanceOf(userAddress)
@@ -533,7 +551,6 @@ describe("StakeCurveConvex", function () {
         const userBCNTBalanceBefore = await bcnt.callStatic.balanceOf(userAddress)
         const userRewardShareBefore = await stakeCurveConvex.callStatic._share(userAddress)
         const userEarnedBCNTAmountBefore = await stakeCurveConvex.callStatic.earned(userAddress)
-        console.log("user balance before: ", (await stakeCurveConvex.callStatic.balanceOf(userAddress)).toString())
 
         const totalRewardShareBefore = await stakeCurveConvex.callStatic._shareTotal()
         const totalEarnedBCNTAmountBefore = await stakeCurveConvex.callStatic.earned(stakeCurveConvex.address)
