@@ -59,7 +59,7 @@ contract Converter is Owned, UUPSUpgradeable {
         return _getImplementation();
     }
 
-    function initialize(address _NATIVE_TOKEN, string memory _name, address _owner, IPancakeRouter _router) external {
+    function initialize(address _NATIVE_TOKEN, string memory _name, address _owner, IPancakeRouter _router) virtual external {
         require(keccak256(abi.encodePacked(name)) == keccak256(abi.encodePacked("")), "Already initialized");
         super.initializeOwner(_owner);
 

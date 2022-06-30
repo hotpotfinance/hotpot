@@ -2,7 +2,7 @@ import { ethers } from "hardhat"
 import "@nomiclabs/hardhat-waffle"
 import "@nomiclabs/hardhat-ethers"
 
-import { mnemonic } from './secrets.json';
+import { api_token } from './secrets.json';
 
 export default {
     // defaultNetwork: "hardhat",
@@ -10,22 +10,25 @@ export default {
         localhost: {
             url: "http://127.0.0.1:8545"
         },
-        // hardhat: {
-        //     chainId: 56,
-        //     forking: {
-        //         url: "https://bsc-dataseed.binance.org/",
-        //         blockNumber: 11218160
-        //     }
-        // },
-        testnet: {
+        hardhat: {
+            // chainId: 56,
+            // forking: {
+            //     url: "https://bsc-dataseed.binance.org/",
+            //     blockNumber: 11218160
+            // }
+            chainId: 1,
+            forking: {
+                url: `https://eth-mainnet.alchemyapi.io/v2/${api_token}`,
+                blockNumber: 14549000,
+            },
+        },
+        testnet_bsc: {
             url: "https://data-seed-prebsc-1-s1.binance.org:8545",
             chainId: 97,
-            accounts: { mnemonic: mnemonic }
         },
-        mainnet: {
+        mainnet_bsc: {
             url: "https://bsc-dataseed.binance.org/",
             chainId: 56,
-            accounts: { mnemonic: mnemonic }
         }
     },
     solidity: {
@@ -55,7 +58,7 @@ export default {
                 }
             },
             {
-                version: "0.8.4",
+                version: "0.8.12",
                 settings: {
                     optimizer: {
                         enabled: true
